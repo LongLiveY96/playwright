@@ -36,7 +36,7 @@ Playwright will look at your page and figure out the best locator, prioritizing 
 
 ### Run in Debug Mode
 
-To set a breakpoint click next to the line number where you want the breakpoint to be until a red dot appears. Run the tests in debug mode by right clicking on the line next to the test you want to run. 
+To set a breakpoint click next to the line number where you want the breakpoint to be until a red dot appears. Run the tests in debug mode by right clicking on the line next to the test you want to run.
 
 <img width="1269" alt="setting debug test mode" src="https://user-images.githubusercontent.com/13063165/212739847-ecb7dcfe-8929-45f3-b24e-f9c4b592f430.png" />
 
@@ -111,26 +111,6 @@ configures Playwright for debugging and opens the inspector. Additional useful d
 - Browsers launch in headed mode
 - Default timeout is set to 0 (= no timeout)
 
-
-```bash tab=bash-bash lang=java
-# Source directories in the list are separated by : on macos and linux and by ; on win.
-PWDEBUG=1 PLAYWRIGHT_JAVA_SRC=<java source dirs> mvn test
-```
-
-```batch tab=bash-batch lang=java
-# Source directories in the list are separated by : on macos and linux and by ; on win.
-set PLAYWRIGHT_JAVA_SRC=<java source dirs>
-set PWDEBUG=1
-mvn test
-```
-
-```powershell tab=bash-powershell lang=java
-# Source directories in the list are separated by : on macos and linux and by ; on win.
-$env:PLAYWRIGHT_JAVA_SRC="<java source dirs>"
-$env:PWDEBUG=1
-mvn test
-```
-
 ```bash tab=bash-bash lang=python
 PWDEBUG=1 pytest -s
 ```
@@ -157,6 +137,32 @@ dotnet test
 ```powershell tab=bash-powershell lang=csharp
 $env:PWDEBUG=1
 dotnet test
+```
+
+#### Configure source location
+* langs: java
+
+To tell Playwright where to look for the source code that you are debugging, pass
+a list of the source directories via `PLAYWRIGHT_JAVA_SRC` environment variable. Paths in
+the list should be separated by : on macOS and Linux, and by ; on Windows.
+
+```bash tab=bash-bash lang=java
+# Source directories in the list are separated by : on macos and linux and by ; on win.
+PWDEBUG=1 PLAYWRIGHT_JAVA_SRC=<java source dirs> mvn test
+```
+
+```batch tab=bash-batch lang=java
+# Source directories in the list are separated by : on macos and linux and by ; on win.
+set PLAYWRIGHT_JAVA_SRC=<java source dirs>
+set PWDEBUG=1
+mvn test
+```
+
+```powershell tab=bash-powershell lang=java
+# Source directories in the list are separated by : on macos and linux and by ; on win.
+$env:PLAYWRIGHT_JAVA_SRC="<java source dirs>"
+$env:PWDEBUG=1
+mvn test
 ```
 
 ### Stepping through your tests
@@ -232,6 +238,7 @@ When running in Debug Mode with `PWDEBUG=console`, a `playwright` object is avai
 - **See console logs** during execution (or learn how to [read logs via API](./api/class-page.md#page-event-console))
 - Check **network activity** and other developer tools features
 
+This will also set the default timeouts of Playwright to 0 (= no timeout).
 
 <img width="1399" alt="Browser Developer Tools with Playwright object" src="https://user-images.githubusercontent.com/13063165/219128002-898f604d-9697-4b7f-95b5-a6a8260b7282.png" />
 
@@ -363,22 +370,6 @@ Locator ()
   - elements: [button]
 ```
 
-#### playwright.highlight(selector)
-
-Highlight the first occurrence of the locator:
-
-```bash
-playwright.highlight('.auth-form');
-```
-
-#### playwright.clear()
-
-```bash
-playwright.clear()
-```
-
-Clear existing highlights.
-
 #### playwright.selector(element)
 
 Generates selector for the given element. For example, select an element in the Elements panel and pass `$0`:
@@ -451,7 +442,8 @@ dotnet run
 
 :::note
 **For WebKit**: launching WebKit Inspector during the execution will
-prevent the Playwright script from executing any further.
+prevent the Playwright script from executing any further and
+will reset pre-configured user agent and device emulation.
 :::
 
 ## Headed mode
@@ -464,12 +456,12 @@ to slow down execution (by N milliseconds per operation) and follow along while 
 
 ```js
 // Chromium, Firefox, or WebKit
-await chromium.launch({ headless: false, slowMo: 100 }); 
+await chromium.launch({ headless: false, slowMo: 100 });
 ```
 
 ```java
 // Chromium, Firefox, or WebKit
-chromium.launch(new BrowserType.LaunchOptions() 
+chromium.launch(new BrowserType.LaunchOptions()
   .setHeadless(false)
   .setSlowMo(100));
 ```

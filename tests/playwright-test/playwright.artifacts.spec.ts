@@ -34,7 +34,6 @@ const testFiles = {
     import fs from 'fs';
     import os from 'os';
     import path from 'path';
-    import rimraf from 'rimraf';
 
     import { test, expect } from '@playwright/test';
 
@@ -107,7 +106,7 @@ const testFiles = {
         const context = await playwright[browserName].launchPersistentContext(dir);
         await use(context.pages()[0]);
         await context.close();
-        rimraf.sync(dir);
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
       },
     });
 
@@ -151,8 +150,10 @@ test('should work with screenshot: on', async ({ runInlineTest }, testInfo) => {
     '  test-finished-1.png',
     'artifacts-shared-shared-failing',
     '  test-failed-1.png',
+    '  test-failed-2.png',
     'artifacts-shared-shared-passing',
     '  test-finished-1.png',
+    '  test-finished-2.png',
     'artifacts-two-contexts',
     '  test-finished-1.png',
     '  test-finished-2.png',
@@ -182,6 +183,7 @@ test('should work with screenshot: only-on-failure', async ({ runInlineTest }, t
     '  test-failed-1.png',
     'artifacts-shared-shared-failing',
     '  test-failed-1.png',
+    '  test-failed-2.png',
     'artifacts-two-contexts-failing',
     '  test-failed-1.png',
     '  test-failed-2.png',
@@ -297,6 +299,66 @@ test('should work with trace: on-first-retry', async ({ runInlineTest }, testInf
     'artifacts-shared-shared-failing-retry1',
     '  trace.zip',
     'artifacts-two-contexts-failing-retry1',
+    '  trace.zip',
+  ]);
+});
+
+test('should work with trace: on-all-retries', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    ...testFiles,
+    'playwright.config.ts': `
+      module.exports = { use: { trace: 'on-all-retries' } };
+    `,
+  }, { workers: 1, retries: 2 });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(5);
+  expect(result.failed).toBe(5);
+  expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
+    'artifacts-failing-retry1',
+    '  trace.zip',
+    'artifacts-failing-retry2',
+    '  trace.zip',
+    'artifacts-own-context-failing-retry1',
+    '  trace.zip',
+    'artifacts-own-context-failing-retry2',
+    '  trace.zip',
+    'artifacts-persistent-failing-retry1',
+    '  trace.zip',
+    'artifacts-persistent-failing-retry2',
+    '  trace.zip',
+    'artifacts-shared-shared-failing-retry1',
+    '  trace.zip',
+    'artifacts-shared-shared-failing-retry2',
+    '  trace.zip',
+    'artifacts-two-contexts-failing-retry1',
+    '  trace.zip',
+    'artifacts-two-contexts-failing-retry2',
+    '  trace.zip',
+  ]);
+});
+
+test('should work with trace: retain-on-first-failure', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    ...testFiles,
+    'playwright.config.ts': `
+      module.exports = { use: { trace: 'retain-on-first-failure' } };
+    `,
+  }, { workers: 1, retries: 2 });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(5);
+  expect(result.failed).toBe(5);
+  expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
+    'artifacts-failing',
+    '  trace.zip',
+    'artifacts-own-context-failing',
+    '  trace.zip',
+    'artifacts-persistent-failing',
+    '  trace.zip',
+    'artifacts-shared-shared-failing',
+    '  trace.zip',
+    'artifacts-two-contexts-failing',
     '  trace.zip',
   ]);
 });

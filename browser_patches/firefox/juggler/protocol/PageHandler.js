@@ -5,7 +5,6 @@
 "use strict";
 
 const {Helper, EventWatcher} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
 const {NetworkObserver, PageNetwork} = ChromeUtils.import('chrome://juggler/content/NetworkObserver.js');
 const {PageTarget} = ChromeUtils.import('chrome://juggler/content/TargetRegistry.js');
@@ -99,6 +98,7 @@ class PageHandler {
     this._pageEventSink = {};
     helper.decorateAsEventEmitter(this._pageEventSink);
 
+    this._pendingEventWatchers = new Set();
     this._eventListeners = [
       helper.on(this._pageTarget, PageTarget.Events.DialogOpened, this._onDialogOpened.bind(this)),
       helper.on(this._pageTarget, PageTarget.Events.DialogClosed, this._onDialogClosed.bind(this)),
@@ -154,6 +154,8 @@ class PageHandler {
 
   async dispose() {
     this._contentPage.dispose();
+    for (const watcher of this._pendingEventWatchers)
+      watcher.dispose();
     helper.removeListeners(this._eventListeners);
   }
 
@@ -312,7 +314,7 @@ class PageHandler {
     return await this._contentPage.send('adoptNode', options);
   }
 
-  async ['Page.screenshot']({ mimeType, clip, omitDeviceScaleFactor }) {
+  async ['Page.screenshot']({ mimeType, clip, omitDeviceScaleFactor, quality = 80}) {
     const rect = new DOMRect(clip.x, clip.y, clip.width, clip.height);
 
     const browsingContext = this._pageTarget.linkedBrowser().browsingContext;
@@ -355,7 +357,15 @@ class PageHandler {
     let ctx = canvas.getContext('2d');
     ctx.drawImage(snapshot, 0, 0);
     snapshot.close();
-    const dataURL = canvas.toDataURL(mimeType);
+
+    if (mimeType === 'image/jpeg') {
+      if (quality < 0 || quality > 100)
+        throw new Error('Quality must be an integer value between 0 and 100; received ' + quality);
+      quality /= 100;
+    } else {
+      quality = undefined;
+    }
+    const dataURL = canvas.toDataURL(mimeType, quality);
     return { data: dataURL.substring(dataURL.indexOf(',') + 1) };
   }
 
@@ -384,7 +394,7 @@ class PageHandler {
           'nsIReferrerInfo',
           'init'
         );
-        referrerInfo = new ReferrerInfo(Ci.nsIHttpChannel.REFERRER_POLICY_UNSET, true, referrerURI);
+        referrerInfo = new ReferrerInfo(Ci.nsIReferrerInfo.UNSAFE_URL, true, referrerURI);
       } catch (e) {
         throw new Error(`Invalid referer: "${referer}"`);
       }
@@ -394,7 +404,7 @@ class PageHandler {
     const unsubscribe = helper.addObserver((browsingContext, topic, loadIdentifier) => {
       navigationId = helper.toProtocolNavigationId(loadIdentifier);
     }, 'juggler-navigation-started-browser');
-    browsingContext.loadURI(url, {
+    browsingContext.loadURI(Services.io.newURI(url), {
       triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
       loadFlags: Ci.nsIWebNavigation.LOAD_FLAGS_IS_LINK,
       referrerInfo,
@@ -426,9 +436,11 @@ class PageHandler {
     return { success: true };
   }
 
-  async ['Page.reload']({}) {
-    const browsingContext = this._pageTarget.linkedBrowser().browsingContext;
-    browsingContext.reload(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
+  async ['Page.reload']() {
+    await this._pageTarget.activateAndRun(() => {
+      const doc = this._pageTarget._tab.linkedBrowser.ownerDocument;
+      doc.getElementById('Browser:Reload').doCommand();
+    });
   }
 
   async ['Page.describeNode'](options) {
@@ -470,100 +482,151 @@ class PageHandler {
   }
 
   async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {
-    const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
-
     const win = this._pageTarget._window;
     const sendEvents = async (types) => {
-      // We must switch to proper tab in the tabbed browser so that
-      // event is dispatched to a proper renderer.
-      await this._pageTarget.activateAndRun(() => {
-        for (const type of types) {
-          // This dispatches to the renderer synchronously.
-          win.windowUtils.sendMouseEvent(
-            type,
-            x + boundingBox.left,
-            y + boundingBox.top,
-            button,
-            clickCount,
-            modifiers,
-            false /* aIgnoreRootScrollFrame */,
-            undefined /* pressure */,
-            undefined /* inputSource */,
-            true /* isDOMEventSynthesized */,
-            undefined /* isWidgetEventSynthesized */,
-            buttons);
-        }
-      });
+      // 1. Scroll element to the desired location first; the coordinates are relative to the element.
+      this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(x, y, 0, 0);
+      // 2. Get element's bounding box in the browser after the scroll is completed.
+      const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
+      // 3. Make sure compositor is flushed after scrolling.
+      if (win.windowUtils.flushApzRepaints())
+        await helper.awaitTopic('apz-repaints-flushed');
+
+      const watcher = new EventWatcher(this._pageEventSink, types, this._pendingEventWatchers);
+      const promises = [];
+      for (const type of types) {
+        // This dispatches to the renderer synchronously.
+        const jugglerEventId = win.windowUtils.jugglerSendMouseEvent(
+          type,
+          x + boundingBox.left,
+          y + boundingBox.top,
+          button,
+          clickCount,
+          modifiers,
+          false /* aIgnoreRootScrollFrame */,
+          0.0 /* pressure */,
+          0 /* inputSource */,
+          true /* isDOMEventSynthesized */,
+          false /* isWidgetEventSynthesized */,
+          buttons,
+          win.windowUtils.DEFAULT_MOUSE_POINTER_ID /* pointerIdentifier */,
+          false /* disablePointerEvent */
+        );
+        promises.push(watcher.ensureEvent(type, eventObject => eventObject.jugglerEventId === jugglerEventId));
+      }
+      await Promise.all(promises);
+      await watcher.dispose();
     };
 
-    if (type === 'mousedown') {
-      if (this._isDragging)
+    // We must switch to proper tab in the tabbed browser so that
+    // 1. Event is dispatched to a proper renderer.
+    // 2. We receive an ack from the renderer for the dispatched event.
+    await this._pageTarget.activateAndRun(async () => {
+      this._pageTarget.ensureContextMenuClosed();
+      // If someone asks us to dispatch mouse event outside of viewport, then we normally would drop it.
+      const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
+      if (x < 0 || y < 0 || x > boundingBox.width || y > boundingBox.height) {
+        if (type !== 'mousemove')
+          return;
+
+        // A special hack: if someone tries to do `mousemove` outside of
+        // viewport coordinates, then move the mouse off from the Web Content.
+        // This way we can eliminate all the hover effects.
+        // NOTE: since this won't go inside the renderer, there's no need to wait for ACK.
+        win.windowUtils.sendMouseEvent(
+          'mousemove',
+          0 /* x */,
+          0 /* y */,
+          button,
+          clickCount,
+          modifiers,
+          false /* aIgnoreRootScrollFrame */,
+          0.0 /* pressure */,
+          0 /* inputSource */,
+          true /* isDOMEventSynthesized */,
+          false /* isWidgetEventSynthesized */,
+          buttons,
+          win.windowUtils.DEFAULT_MOUSE_POINTER_ID /* pointerIdentifier */,
+          false /* disablePointerEvent */
+        );
         return;
+      }
 
-      const eventNames = button === 2 ? ['mousedown', 'contextmenu'] : ['mousedown'];
-      const watcher = new EventWatcher(this._pageEventSink, eventNames);
-      await sendEvents(eventNames);
-      await watcher.ensureEventsAndDispose(eventNames);
-      return;
-    }
+      if (type === 'mousedown') {
+        if (this._isDragging)
+          return;
 
-    if (type === 'mousemove') {
-      this._lastMousePosition = { x, y };
-      if (this._isDragging) {
-        const watcher = new EventWatcher(this._pageEventSink, ['dragover']);
-        await this._contentPage.send('dispatchDragEvent', {type:'dragover', x, y, modifiers});
-        await watcher.ensureEventsAndDispose(['dragover']);
+        const eventNames = button === 2 ? ['mousedown', 'contextmenu'] : ['mousedown'];
+        await sendEvents(eventNames);
         return;
       }
 
-      const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'mousemove', 'juggler-drag-finalized']);
-      await sendEvents(['mousemove']);
+      if (type === 'mousemove') {
+        this._lastMousePosition = { x, y };
+        if (this._isDragging) {
+          const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
+          await this._contentPage.send('dispatchDragEvent', {type:'dragover', x, y, modifiers});
+          await watcher.ensureEventsAndDispose(['dragover']);
+          return;
+        }
 
-      // The order of events after 'mousemove' is sent:
-      // 1. [dragstart] - might or might NOT be emitted
-      // 2. [mousemove] - always emitted
-      // 3. [juggler-drag-finalized] - only emitted if dragstart was emitted.
+        const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'juggler-drag-finalized'], this._pendingEventWatchers);
+        await sendEvents(['mousemove']);
 
-      await watcher.ensureEvent('mousemove');
-      if (watcher.hasEvent('dragstart')) {
-        const eventObject = await watcher.ensureEvent('juggler-drag-finalized');
-        this._isDragging = eventObject.dragSessionStarted;
+        // The order of events after 'mousemove' is sent:
+        // 1. [dragstart] - might or might NOT be emitted
+        // 2. [mousemove] - always emitted. This was awaited as part of `sendEvents` call.
+        // 3. [juggler-drag-finalized] - only emitted if dragstart was emitted.
+
+        if (watcher.hasEvent('dragstart')) {
+          const eventObject = await watcher.ensureEvent('juggler-drag-finalized');
+          this._isDragging = eventObject.dragSessionStarted;
+        }
+        watcher.dispose();
+        return;
       }
-      watcher.dispose();
-      return;
-    }
 
-    if (type === 'mouseup') {
-      if (this._isDragging) {
-        const watcher = new EventWatcher(this._pageEventSink, ['dragover', 'dragend']);
-        await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x, y, modifiers});
-        await this._contentPage.send('dispatchDragEvent', {type: 'drop', x, y, modifiers});
-        await this._contentPage.send('dispatchDragEvent', {type: 'dragend', x, y, modifiers});
-        // NOTE: 'drop' event might not be dispatched at all, depending on dropAction.
-        await watcher.ensureEventsAndDispose(['dragover', 'dragend']);
-        this._isDragging = false;
-      } else {
-        const watcher = new EventWatcher(this._pageEventSink, ['mouseup']);
-        await sendEvents(['mouseup']);
-        await watcher.ensureEventsAndDispose(['mouseup']);
+      if (type === 'mouseup') {
+        if (this._isDragging) {
+          const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
+          await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x, y, modifiers});
+          await this._contentPage.send('dispatchDragEvent', {type: 'drop', x, y, modifiers});
+          await this._contentPage.send('dispatchDragEvent', {type: 'dragend', x, y, modifiers});
+          // NOTE:
+          // - 'drop' event might not be dispatched at all, depending on dropAction.
+          // - 'dragend' event might not be dispatched at all, if the source element was removed
+          //   during drag. However, it'll be dispatched synchronously in the renderer.
+          await watcher.ensureEventsAndDispose(['dragover']);
+          this._isDragging = false;
+        } else {
+          await sendEvents(['mouseup']);
+        }
+        return;
       }
-      return;
-    }
+    }, { muteNotificationsPopup: true });
   }
 
   async ['Page.dispatchWheelEvent']({x, y, button, deltaX, deltaY, deltaZ, modifiers }) {
-    const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
-    x += boundingBox.left;
-    y += boundingBox.top;
     const deltaMode = 0; // WheelEvent.DOM_DELTA_PIXEL
     const lineOrPageDeltaX = deltaX > 0 ? Math.floor(deltaX) : Math.ceil(deltaX);
     const lineOrPageDeltaY = deltaY > 0 ? Math.floor(deltaY) : Math.ceil(deltaY);
 
-    await this._pageTarget.activateAndRun(() => {
+    await this._pageTarget.activateAndRun(async () => {
+      this._pageTarget.ensureContextMenuClosed();
+
+      // 1. Scroll element to the desired location first; the coordinates are relative to the element.
+      this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(x, y, 0, 0);
+      // 2. Get element's bounding box in the browser after the scroll is completed.
+      const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
+
       const win = this._pageTarget._window;
+      // 3. Make sure compositor is flushed after scrolling.
+      if (win.windowUtils.flushApzRepaints())
+        await helper.awaitTopic('apz-repaints-flushed');
+
       win.windowUtils.sendWheelEvent(
-        x,
-        y,
+        x + boundingBox.left,
+        y + boundingBox.top,
         deltaX,
         deltaY,
         deltaZ,
@@ -572,7 +635,7 @@ class PageHandler {
         lineOrPageDeltaX,
         lineOrPageDeltaY,
         0 /* options */);
-    });
+    }, { muteNotificationsPopup: true });
   }
 
   async ['Page.insertText'](options) {

@@ -20,35 +20,36 @@
 
 const fs = require('fs');
 const ts = require('typescript');
-const path = require('path');
-
-const packagesDir = path.normalize(path.join(__dirname, '..', 'packages'));
+const path = require('path').posix;
+const Module = require('module');
+const builtins = new Set(Module.builtinModules);
+const packagesDir = path.resolve(path.join(__dirname, '..', 'packages'));
 
 const packages = new Map();
-for (const package of fs.readdirSync(packagesDir))
-  packages.set(package, packagesDir + '/' + package + '/src/');
+packages.set('web', packagesDir + '/web/src/');
 packages.set('injected', packagesDir + '/playwright-core/src/server/injected/');
 packages.set('isomorphic', packagesDir + '/playwright-core/src/utils/isomorphic/');
-packages.set('testIsomorphic', packagesDir + '/playwright-test/src/isomorphic/');
+packages.set('testIsomorphic', packagesDir + '/playwright/src/isomorphic/');
 
 const peerDependencies = ['electron', 'react', 'react-dom', '@zip.js/zip.js'];
 
 const depsCache = {};
 
 async function checkDeps() {
-  await innerCheckDeps(path.join(packagesDir, 'protocol'));
-  await innerCheckDeps(path.join(packagesDir, 'trace'));
-  await innerCheckDeps(path.join(packagesDir, 'web'));
   await innerCheckDeps(path.join(packagesDir, 'html-reporter'));
+  await innerCheckDeps(path.join(packagesDir, 'playwright-ct-core'));
+  await innerCheckDeps(path.join(packagesDir, 'protocol'));
   await innerCheckDeps(path.join(packagesDir, 'recorder'));
   await innerCheckDeps(path.join(packagesDir, 'trace-viewer'));
+  await innerCheckDeps(path.join(packagesDir, 'trace'));
+  await innerCheckDeps(path.join(packagesDir, 'web'));
 
   const corePackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright-core'));
-  const testPackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright-test'));
+  const playwrightPackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright'));
 
   let hasVersionMismatch = false;
   for (const [key, value] of Object.entries(corePackageJson.dependencies || {})) {
-    const value2 = testPackageJson.dependencies[key];
+    const value2 = playwrightPackageJson.dependencies[key];
     if (value2 && value2 !== value) {
       hasVersionMismatch = true;
       console.log(`Dependency version mismatch ${key}: ${value} != ${value2}`);
@@ -64,7 +65,7 @@ async function innerCheckDeps(root) {
 
   let packageJSON;
   try {
-    packageJSON = require(path.join(root, 'package.json'));
+    packageJSON = require(path.resolve(path.join(root, 'package.json')));
   } catch {
   }
 
@@ -78,7 +79,7 @@ async function innerCheckDeps(root) {
   });
   const sourceFiles = program.getSourceFiles();
   const errors = [];
-  sourceFiles.filter(x => !x.fileName.includes('node_modules')).map(x => visit(x, x.fileName));
+  sourceFiles.filter(x => !x.fileName.includes('node_modules')).map(x => visit(x, x.fileName, x.getFullText()));
 
   if (errors.length) {
     for (const error of errors)
@@ -111,10 +112,16 @@ async function innerCheckDeps(root) {
 
   return packageJSON;
 
-  function visit(node, fileName) {
+  function visit(node, fileName, text) {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-      if (node.importClause && node.importClause.isTypeOnly)
-        return;
+      if (node.importClause) {
+        if (node.importClause.isTypeOnly)
+          return;
+        if (node.importClause.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
+          if (node.importClause.namedBindings.elements.every(e => e.isTypeOnly))
+            return;
+        }
+      }
       const importName = node.moduleSpecifier.text;
       let importPath;
       if (importName.startsWith('.')) {
@@ -126,6 +133,9 @@ async function innerCheckDeps(root) {
           importPath = packages.get(package) + tokens.slice(1).join('/');
       }
 
+      const mergedDeps = calculateDeps(fileName);
+      if (mergedDeps.includes('***'))
+        return;
       if (importPath) {
         if (!fs.existsSync(importPath)) {
           if (fs.existsSync(importPath + '.ts'))
@@ -136,9 +146,17 @@ async function innerCheckDeps(root) {
             importPath = importPath + '.d.ts';
         }
 
-        if (!allowImport(fileName, importPath))
+        if (!allowImport(fileName, importPath, mergedDeps))
           errors.push(`Disallowed import ${path.relative(root, importPath)} in ${path.relative(root, fileName)}`);
         return;
+      }
+
+      const fullStart = node.getFullStart();
+      const commentRanges = ts.getLeadingCommentRanges(text, fullStart);
+      for (const range of commentRanges || []) {
+          const comment = text.substring(range.pos, range.end);
+          if (comment.includes('@no-check-deps'))
+            return;
       }
 
       if (importName.startsWith('@'))
@@ -149,20 +167,16 @@ async function innerCheckDeps(root) {
       if (!allowExternalImport(importName, packageJSON))
         errors.push(`Disallowed external dependency ${importName} from ${path.relative(root, fileName)}`);
     }
-    ts.forEachChild(node, x => visit(x, fileName));
+    ts.forEachChild(node, x => visit(x, fileName, text));
   }
 
-  function allowImport(from, to) {
+  function calculateDeps(from) {
     const fromDirectory = path.dirname(from);
-    const toDirectory = isDirectory(to) ? to : path.dirname(to);
-    if (to === toDirectory)
-      to = path.join(to, 'index.ts');
-    if (fromDirectory === toDirectory)
-      return true;
-
     let depsDirectory = fromDirectory;
     while (depsDirectory.startsWith(packagesDir) && !depsCache[depsDirectory] && !fs.existsSync(path.join(depsDirectory, 'DEPS.list')))
       depsDirectory = path.dirname(depsDirectory);
+    if (!depsDirectory.startsWith(packagesDir))
+      return [];
 
     let deps = depsCache[depsDirectory];
     if (!deps) {
@@ -186,7 +200,17 @@ async function innerCheckDeps(root) {
       depsCache[depsDirectory] = deps;
     }
 
-    const mergedDeps = [...(deps['*'] || []), ...(deps[path.relative(depsDirectory, from)] || [])]
+    return [...(deps['*'] || []), ...(deps[path.relative(depsDirectory, from)] || [])]
+  }
+
+  function allowImport(from, to, mergedDeps) {
+    const fromDirectory = path.dirname(from);
+    const toDirectory = isDirectory(to) ? to : path.dirname(to);
+    if (to === toDirectory)
+      to = path.join(to, 'index.ts');
+    if (fromDirectory === toDirectory)
+      return true;
+
     for (const dep of mergedDeps) {
       if (dep === '***')
         return true;
@@ -203,22 +227,16 @@ async function innerCheckDeps(root) {
 
   function allowExternalImport(importName, packageJSON) {
     // Only external imports are relevant. Files in src/web are bundled via webpack.
-    if (importName.startsWith('.') || importName.startsWith('@'))
+    if (importName.startsWith('.') || (importName.startsWith('@') && !importName.startsWith('@playwright/')))
       return true;
     if (peerDependencies.includes(importName))
       return true;
-    try {
-      const resolvedImport = require.resolve(importName);
-      if (!resolvedImport.includes('node_modules'))
-        return true;
-    } catch (error) {
-      if (error.code !== 'MODULE_NOT_FOUND')
-        throw error;
-    }
     if (!packageJSON)
       return false;
     const match = importName.match(/(@[\w-]+\/)?([^/]+)/);
-    const dependency = match[1] ? match[1] + '/' + match[2] : match[2];
+    const dependency = match[1] ? match[1] + match[2] : match[2];
+    if (builtins.has(dependency))
+      return true;
     return !!(packageJSON.dependencies || {})[dependency];
   }
 }

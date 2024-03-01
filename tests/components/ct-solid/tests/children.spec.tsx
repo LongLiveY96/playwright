@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/experimental-ct-solid';
 import Button from '@/components/Button';
 import DefaultChildren from '@/components/DefaultChildren';
 import MultipleChildren from '@/components/MultipleChildren';
+import CheckChildrenProp from '@/components/CheckChildrenProp'
 
 test('render a default child', async ({ mount }) => {
   const component = await mount(
@@ -13,12 +14,12 @@ test('render a default child', async ({ mount }) => {
 test('render multiple children', async ({ mount }) => {
   const component = await mount(
     <DefaultChildren>
-      <div id="one">One</div>
-      <div id="two">Two</div>
+      <div data-testid="one">One</div>
+      <div data-testid="two">Two</div>
     </DefaultChildren>
   );
-  await expect(component.locator('#one')).toContainText('One');
-  await expect(component.locator('#two')).toContainText('Two');
+  await expect(component.getByTestId('one')).toContainText('One');
+  await expect(component.getByTestId('two')).toContainText('Two');
 });
 
 test('render a component as child', async ({ mount }) => {
@@ -49,11 +50,17 @@ test('render string as child', async ({ mount }) => {
 });
 
 test('render array as child', async ({ mount }) => {
-  const component = await mount(<DefaultChildren>{[4,2]}</DefaultChildren>);
-  await expect(component).toContainText('42');
+  const component = await mount(<DefaultChildren>{[<h4>{[4]}</h4>,[[<p>[2,3]</p>]]]}</DefaultChildren>);
+  await expect(component.getByRole('heading', { level: 4 })).toHaveText('4');
+  await expect(component.getByRole('paragraph')).toHaveText('[2,3]');
 });
 
 test('render number as child', async ({ mount }) => {
   const component = await mount(<DefaultChildren>{1337}</DefaultChildren>);
   await expect(component).toContainText('1337');
+});
+
+test('absence of children when children prop is not provided', async ({ mount }) => {
+  const component = await mount(<CheckChildrenProp />);
+  await expect(component).toContainText('No Children');
 });

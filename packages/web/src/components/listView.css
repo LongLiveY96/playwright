@@ -20,7 +20,7 @@
   flex: auto;
   position: relative;
   user-select: none;
-  overflow: auto;
+  overflow: hidden auto;
   outline: 1px solid transparent;
 }
 
@@ -61,10 +61,6 @@
   background-color: transparent !important;
 }
 
-.list-view-content:focus .list-view-entry.error.selected {
-  outline: 1px solid var(--vscode-inputValidation-errorBorder);
-}
-
 .list-view-content:focus .list-view-entry.selected .codicon {
   color: var(--vscode-list-activeSelectionForeground) !important;
 }
@@ -79,4 +75,13 @@
 .list-view-entry.error {
   color: var(--vscode-list-errorForeground);
   background-color: var(--vscode-inputValidation-errorBackground);
+}
+
+.list-view-entry.warning {
+  color: var(--vscode-list-warningForeground);
+  background-color: var(--vscode-inputValidation-warningBackground);
+}
+
+.list-view-entry.info {
+  background-color: var(--vscode-inputValidation-infoBackground);
 }

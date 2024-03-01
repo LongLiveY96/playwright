@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -e
 set +x
@@ -26,30 +26,24 @@ else
   exit 1
 fi
 
-if [[ -z "${GITHUB_SHA}" ]]; then
-  echo "ERROR: GITHUB_SHA env variable must be specified"
-  exit 1
-fi
-
 FOCAL_TAGS=(
   "next"
-  "sha-${GITHUB_SHA}"
   "next-focal"
   "v${PW_VERSION}-focal"
-  "v${PW_VERSION}"
 )
 
 if [[ "$RELEASE_CHANNEL" == "stable" ]]; then
-  FOCAL_TAGS+=("latest")
   FOCAL_TAGS+=("focal")
 fi
 
 JAMMY_TAGS=(
   "next-jammy"
   "v${PW_VERSION}-jammy"
+  "v${PW_VERSION}"
 )
 
 if [[ "$RELEASE_CHANNEL" == "stable" ]]; then
+  JAMMY_TAGS+=("latest")
   JAMMY_TAGS+=("jammy")
 fi
 

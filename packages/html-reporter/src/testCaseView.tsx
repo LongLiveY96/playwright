@@ -14,7 +14,7 @@
   limitations under the License.
 */
 
-import type { TestCase } from './types';
+import type { TestCase, TestCaseAnnotation } from './types';
 import * as React from 'react';
 import { TabbedPane } from './tabbedPane';
 import { AutoChip } from './chip';
@@ -23,7 +23,8 @@ import { ProjectLink } from './links';
 import { statusIcon } from './statusIcon';
 import './testCaseView.css';
 import { TestResultView } from './testResultView';
-import { hashStringToInt, matchTags } from './labelUtils';
+import { hashStringToInt, testCaseLabels } from './labelUtils';
+import { msToString } from './uiUtils';
 
 export const TestCaseView: React.FC<{
   projectNames: string[],
@@ -33,28 +34,26 @@ export const TestCaseView: React.FC<{
 }> = ({ projectNames, test, run, anchor }) => {
   const [selectedResultIndex, setSelectedResultIndex] = React.useState(run);
 
-  const annotations = new Map<string, (string | undefined)[]>();
-  test?.annotations.forEach(annotation => {
-    const list = annotations.get(annotation.type) || [];
-    list.push(annotation.description);
-    annotations.set(annotation.type, list);
-  });
   const labels = React.useMemo(() => {
     if (!test)
       return undefined;
-    return matchTags(test.title).sort((a, b) => a.localeCompare(b));
+    return testCaseLabels(test);
   }, [test]);
 
   return <div className='test-case-column vbox'>
     {test && <div className='test-case-path'>{test.path.join(' › ')}</div>}
     {test && <div className='test-case-title'>{test?.title}</div>}
-    {test && <div className='test-case-location'>{test.location.file}:{test.location.line}</div>}
+    {test && <div className='hbox'>
+      <div className='test-case-location'>{test.location.file}:{test.location.line}</div>
+      <div style={{ flex: 'auto' }}></div>
+      <div className='test-case-duration'>{msToString(test.duration)}</div>
+    </div>}
     {test && (!!test.projectName || labels) && <div className='test-case-project-labels-row'>
-      {!!test.projectName && <ProjectLink projectNames={projectNames} projectName={test.projectName}></ProjectLink>}
+      {test && !!test.projectName && <ProjectLink projectNames={projectNames} projectName={test.projectName}></ProjectLink>}
       {labels && <LabelsLinkView labels={labels} />}
     </div>}
-    {annotations.size > 0 && <AutoChip header='Annotations'>
-      {[...annotations].map(annotation => <TestCaseAnnotationView type={annotation[0]} descriptions={annotation[1]} />)}
+    {test && !!test.annotations.length && <AutoChip header='Annotations'>
+      {test?.annotations.map(annotation => <TestCaseAnnotationView annotation={annotation} />)}
     </AutoChip>}
     {test && <TabbedPane tabs={
       test.results.map((result, index) => ({
@@ -73,17 +72,11 @@ function renderAnnotationDescription(description: string) {
   return description;
 }
 
-function TestCaseAnnotationView({ type, descriptions }: { type: string, descriptions: (string | undefined)[] }) {
-  const filteredDescriptions = descriptions.filter(Boolean) as string[];
+function TestCaseAnnotationView({ annotation: { type, description } }: { annotation: TestCaseAnnotation }) {
   return (
     <div className='test-case-annotation'>
       <span style={{ fontWeight: 'bold' }}>{type}</span>
-      {!!filteredDescriptions.length && <span>: {filteredDescriptions.map((d, i) => {
-        const rendered = renderAnnotationDescription(d);
-        if (i < filteredDescriptions.length - 1)
-          return <>{rendered}, </>;
-        return rendered;
-      })}</span>}
+      {description && <span>: {renderAnnotationDescription(description)}</span>}
     </div>
   );
 }
@@ -99,10 +92,10 @@ const LabelsLinkView: React.FC<React.PropsWithChildren<{
 }>> = ({ labels }) => {
   return labels.length > 0 ? (
     <>
-      {labels.map(tag => (
-        <a style={{ textDecoration: 'none', color: 'var(--color-fg-default)' }} href={`#?q=@${tag}`} >
-          <span style={{ margin: '6px 0 0 6px', cursor: 'pointer' }} className={'label label-color-' + (hashStringToInt(tag))}>
-            {tag}
+      {labels.map(label => (
+        <a key={label} style={{ textDecoration: 'none', color: 'var(--color-fg-default)' }} href={`#?q=${label}`} >
+          <span style={{ margin: '6px 0 0 6px', cursor: 'pointer' }} className={'label label-color-' + (hashStringToInt(label))}>
+            {label.slice(1)}
           </span>
         </a>
       ))}

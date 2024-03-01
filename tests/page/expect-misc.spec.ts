@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { stripAnsi } from '../config/utils';
 import { test, expect } from './pageTest';
 
 test.describe('toHaveCount', () => {
@@ -165,6 +166,26 @@ test.describe('toHaveJSProperty', () => {
     const locator = page.locator('div');
     await expect(locator).toHaveJSProperty('foo', null);
   });
+
+  test('pass nested', async ({ page }) => {
+    await page.setContent('<div></div>');
+    await page.$eval('div', e => (e as any).foo = { nested: { a: 1, b: 'string', c: new Date(1627503992000) } });
+    const locator = page.locator('div');
+    await expect(locator).toHaveJSProperty('foo.nested', { a: 1, b: 'string', c: new Date(1627503992000) });
+    await expect(locator).toHaveJSProperty('foo.nested.a', 1);
+    await expect(locator).toHaveJSProperty('foo.nested.b', 'string');
+    await expect(locator).toHaveJSProperty('foo.nested.c', new Date(1627503992000));
+  });
+
+  test('fail nested', async ({ page }) => {
+    await page.setContent('<div></div>');
+    await page.$eval('div', e => (e as any).foo = { nested: { a: 1, b: 'string', c: new Date(1627503992000) } });
+    const locator = page.locator('div');
+    const error1 = await expect(locator).toHaveJSProperty('foo.bar', { a: 1, b: 'string', c: new Date(1627503992001) }, { timeout: 1000 }).catch(e => e);
+    expect.soft(stripAnsi(error1.message)).toContain(`Received: undefined`);
+    const error2 = await expect(locator).toHaveJSProperty('foo.nested.a', 2, { timeout: 1000 }).catch(e => e);
+    expect.soft(stripAnsi(error2.message)).toContain(`Received: 1`);
+  });
 });
 
 test.describe('toHaveClass', () => {
@@ -262,6 +283,29 @@ test.describe('toHaveAttribute', () => {
       expect(error.message).toContain('expect.not.toHaveAttribute with timeout 1000ms');
     }
   });
+
+  test('should match attribute without value', async ({ page }) => {
+    await page.setContent('<div checked id=node>Text content</div>');
+    const locator = page.locator('#node');
+    await expect(locator).toHaveAttribute('id');
+    await expect(locator).toHaveAttribute('checked');
+    await expect(locator).not.toHaveAttribute('open');
+  });
+
+  test('should support boolean attribute with options', async ({ page }) => {
+    await page.setContent('<div checked id=node>Text content</div>');
+    const locator = page.locator('#node');
+    await expect(locator).toHaveAttribute('id', { timeout: 5000 });
+    await expect(locator).toHaveAttribute('checked', { timeout: 5000 });
+    await expect(locator).not.toHaveAttribute('open', { timeout: 5000 });
+  });
+
+  test('support ignoreCase', async ({ page }) => {
+    await page.setContent('<div id=NoDe>Text content</div>');
+    const locator = page.locator('#NoDe');
+    await expect(locator).toHaveAttribute('id', 'node', { ignoreCase: true });
+    await expect(locator).not.toHaveAttribute('id', 'node');
+  });
 });
 
 test.describe('toHaveCSS', () => {
@@ -340,4 +384,33 @@ test.describe('toBeInViewport', () => {
     `);
     await expect(page.locator('h1')).toBeInViewport();
   });
+});
+
+test('toHaveCount should not produce logs twice', async ({ page }) => {
+  await page.setContent('<select><option>One</option></select>');
+  const error = await expect(page.locator('option')).toHaveCount(2, { timeout: 2000 }).catch(e => e);
+  const waitingForMessage = `waiting for locator('option')`;
+  expect(error.message).toContain(waitingForMessage);
+  expect(error.message).toContain(`locator resolved to 1 element`);
+  expect(error.message).toContain(`unexpected value "1"`);
+  expect(error.message.replace(waitingForMessage, '<redacted>')).not.toContain(waitingForMessage);
+});
+
+test('toHaveText should not produce logs twice', async ({ page }) => {
+  await page.setContent('<div>hello</div>');
+  const error = await expect(page.locator('div')).toHaveText('world', { timeout: 2000 }).catch(e => e);
+  const waitingForMessage = `waiting for locator('div')`;
+  expect(error.message).toContain(waitingForMessage);
+  expect(error.message).toContain(`locator resolved to <div>hello</div>`);
+  expect(error.message).toContain(`unexpected value "hello"`);
+  expect(error.message.replace(waitingForMessage, '<redacted>')).not.toContain(waitingForMessage);
+});
+
+test('toHaveText that does not match should not produce logs twice', async ({ page }) => {
+  await page.setContent('<div>hello</div>');
+  const error = await expect(page.locator('span')).toHaveText('world', { timeout: 2000 }).catch(e => e);
+  const waitingForMessage = `waiting for locator('span')`;
+  expect(error.message).toContain(waitingForMessage);
+  expect(error.message).not.toContain('locator resolved to');
+  expect(error.message.replace(waitingForMessage, '<redacted>')).not.toContain(waitingForMessage);
 });

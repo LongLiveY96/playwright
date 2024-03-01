@@ -15,9 +15,9 @@
  */
 
 import { config as loadEnv } from 'dotenv';
-loadEnv({ path: path.join(__dirname, '..', '..', '.env') });
+loadEnv({ path: path.join(__dirname, '..', '..', '.env'), override: true });
 
-import type { Config, PlaywrightTestOptions, PlaywrightWorkerOptions } from '@playwright/test';
+import { type Config, type PlaywrightTestOptions, type PlaywrightWorkerOptions, type ReporterDescription } from '@playwright/test';
 import * as path from 'path';
 import type { TestModeWorkerOptions } from '../config/testModeFixtures';
 import type { TestModeName } from '../config/testMode';
@@ -34,7 +34,7 @@ const getExecutablePath = (browserName: BrowserName) => {
     return process.env.WKPATH;
 };
 
-const mode: TestModeName = (process.env.PWTEST_MODE ?? 'default') as ('default' | 'driver' | 'service');
+const mode = (process.env.PWTEST_MODE ?? 'default') as TestModeName;
 const headed = process.argv.includes('--headed');
 const channel = process.env.PWTEST_CHANNEL as any;
 const video = !!process.env.PWTEST_VIDEO;
@@ -42,39 +42,62 @@ const trace = !!process.env.PWTEST_TRACE;
 
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
+const reporters = () => {
+  const result: ReporterDescription[] = process.env.CI ? [
+    ['dot'],
+    ['json', { outputFile: path.join(outputDir, 'report.json') }],
+    ['blob', { fileName: `${process.env.PWTEST_BOT_NAME}.zip` }],
+  ] : [
+    ['html', { open: 'on-failure' }]
+  ];
+  return result;
+};
+
+const os: 'linux' | 'windows' = (process.env.PLAYWRIGHT_SERVICE_OS as 'linux' | 'windows') || 'linux';
+const runId = process.env.PLAYWRIGHT_SERVICE_RUN_ID || new Date().toISOString(); // name the test run
+
+let connectOptions: any;
+let webServer: any;
+
+if (mode === 'service') {
+  connectOptions = { wsEndpoint: 'ws://localhost:3333/' };
+  webServer = {
+    command: 'npx playwright run-server --port=3333',
+    url: 'http://localhost:3333',
+    reuseExistingServer: !process.env.CI,
+  };
+}
+if (mode === 'service2') {
+  process.env.PW_VERSION_OVERRIDE = process.env.PW_VERSION_OVERRIDE || '1.39';
+  connectOptions = {
+    wsEndpoint: `${process.env.PLAYWRIGHT_SERVICE_URL}?cap=${JSON.stringify({ os, runId })}`,
+    timeout: 3 * 60 * 1000,
+    exposeNetwork: '<loopback>',
+    headers: {
+      'x-mpt-access-key': process.env.PLAYWRIGHT_SERVICE_ACCESS_KEY!
+    }
+  };
+}
+
 const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & PlaywrightTestOptions & TestModeWorkerOptions> = {
   testDir,
   outputDir,
   expect: {
     timeout: 10000,
-    toHaveScreenshot: { _comparator: 'ssim-cie94' } as any,
-    toMatchSnapshot: { _comparator: 'ssim-cie94' } as any,
   },
-  maxFailures: 100,
+  maxFailures: 200,
   timeout: video ? 60000 : 30000,
   globalTimeout: 5400000,
   workers: process.env.CI ? 2 : undefined,
   fullyParallel: !process.env.CI,
   forbidOnly: !!process.env.CI,
-  preserveOutput: process.env.CI ? 'failures-only' : 'always',
   retries: process.env.CI ? 3 : 0,
-  reporter: process.env.CI ? [
-    ['dot'],
-    ['json', { outputFile: path.join(outputDir, 'report.json') }],
-  ] : [
-    ['html', { open: 'on-failure' }]
-  ],
+  reporter: reporters(),
   projects: [],
   use: {
-    connectOptions: mode === 'service' ? {
-      wsEndpoint: 'ws://localhost:3333/',
-    } : undefined,
+    connectOptions,
   },
-  webServer: mode === 'service' ? {
-    command: 'npx playwright run-server --port=3333',
-    url: 'http://localhost:3333',
-    reuseExistingServer: !process.env.CI,
-  } : undefined,
+  webServer,
 };
 
 const browserNames = ['chromium', 'webkit', 'firefox'] as BrowserName[];

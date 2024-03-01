@@ -282,7 +282,7 @@ it.describe('Drag and drop', () => {
     await page.mouse.down();
     await page.hover('#target');
     await page.mouse.up();
-    route.abort();
+    await route.abort();
     expect(await page.$eval('#target', target => target.contains(document.querySelector('#source')))).toBe(true); // could not find source in target
   });
 
@@ -431,4 +431,26 @@ it('should handle custom dataTransfer', async ({ page, browserName, isWindows })
     types: ['custom-type'],
     data: 'Hello World',
   });
+});
+
+it('what happens when dragging element is destroyed', async ({ page, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21621' });
+
+  await page.setContent(`
+    <button draggable="true">Draggable</button>
+    <div id=target>drop here</div>
+  `);
+
+  await page.evaluate(() => {
+    document.querySelector('#target').addEventListener('dragover', event => {
+      document.querySelector('button')?.remove();
+    }, false);
+
+    document.querySelector('#target').addEventListener('drop', event => {
+      document.querySelector('#target').textContent = 'dropped';
+    }, false);
+  });
+
+  await page.locator('button').dragTo(page.locator('div'));
+  await expect(page.locator('div')).toHaveText('drop here');
 });

@@ -44,8 +44,14 @@ test('hooks should work with fixtures', async ({ runInlineTest }) => {
         test.beforeAll(async ({ w, t }) => {
           global.logs.push('beforeAll-' + w + '-' + t);
         });
+        test.beforeAll(async ({ w, t }) => {
+          global.logs.push('beforeAll2-' + w + '-' + t);
+        });
         test.afterAll(async ({ w, t }) => {
           global.logs.push('afterAll-' + w + '-' + t);
+        });
+        test.afterAll(async ({ w, t }) => {
+          global.logs.push('afterAll2-' + w + '-' + t);
         });
 
         test.beforeEach(async ({ w, t }) => {
@@ -65,10 +71,20 @@ test('hooks should work with fixtures', async ({ runInlineTest }) => {
           '+w',
           '+t',
           'beforeAll-17-42',
-          'beforeEach-17-42',
-          'test-17-42',
-          'afterEach-17-42',
-          'afterAll-17-42',
+          '-t',
+          '+t',
+          'beforeAll2-17-43',
+          '-t',
+          '+t',
+          'beforeEach-17-44',
+          'test-17-44',
+          'afterEach-17-44',
+          '-t',
+          '+t',
+          'afterAll-17-45',
+          '-t',
+          '+t',
+          'afterAll2-17-46',
           '-t',
           '+t',
         ]);
@@ -260,7 +276,7 @@ test('run hooks after failure', async ({ runInlineTest }) => {
     'a.test.js': `
       import { test, expect } from '@playwright/test';
       test.describe('suite', () => {
-        test('faled', ({}) => {
+        test('failed', ({}) => {
           console.log('\\n%%test');
           expect(1).toBe(2);
         });
@@ -354,7 +370,7 @@ test('max-failures should still run afterEach/afterAll', async ({ runInlineTest 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(1);
-  expect(result.skipped).toBe(1);
+  expect(result.didNotRun).toBe(1);
   expect(result.outputLines).toEqual([
     'test',
     'afterEach',
@@ -644,7 +660,7 @@ test('should not hang and report results when worker process suddenly exits duri
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Internal error: worker process exited unexpectedly');
+  expect(result.output).toContain('Error: worker process exited unexpectedly');
   expect(result.output).toContain('[1/1] a.spec.js:3:11 › failing due to afterall');
 });
 
@@ -657,7 +673,7 @@ test('unhandled rejection during beforeAll should be reported and prevent more t
         Promise.resolve().then(() => {
           throw new Error('Oh my');
         });
-        await new Promise(f => setTimeout(f, 100));
+        await new Promise(f => setTimeout(f, 1000));
       });
       test.afterAll(() => {
         console.log('\\n%%afterAll');
@@ -687,26 +703,26 @@ test('beforeAll and afterAll should have a separate timeout', async ({ runInline
       import { test, expect } from '@playwright/test';
       test.beforeAll(async () => {
         console.log('\\n%%beforeAll');
-        await new Promise(f => setTimeout(f, 300));
+        await new Promise(f => setTimeout(f, 1600));
       });
       test.beforeAll(async () => {
         console.log('\\n%%beforeAll2');
-        await new Promise(f => setTimeout(f, 300));
+        await new Promise(f => setTimeout(f, 1600));
       });
       test('passed', async () => {
         console.log('\\n%%test');
-        await new Promise(f => setTimeout(f, 300));
+        await new Promise(f => setTimeout(f, 1600));
       });
       test.afterAll(async () => {
         console.log('\\n%%afterAll');
-        await new Promise(f => setTimeout(f, 300));
+        await new Promise(f => setTimeout(f, 1600));
       });
       test.afterAll(async () => {
         console.log('\\n%%afterAll2');
-        await new Promise(f => setTimeout(f, 300));
+        await new Promise(f => setTimeout(f, 1600));
       });
     `,
-  }, { timeout: '500' });
+  }, { timeout: '3000' });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
   expect(result.outputLines).toEqual([

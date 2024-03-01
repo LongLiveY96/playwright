@@ -19,23 +19,25 @@ import { getByAltTextSelector, getByLabelSelector, getByPlaceholderSelector, get
 import { escapeForTextSelector } from '../../utils/isomorphic/stringUtils';
 import { asLocator } from '../../utils/isomorphic/locatorGenerators';
 import type { Language } from '../../utils/isomorphic/locatorGenerators';
-import { type InjectedScript } from './injectedScript';
-import { generateSelector } from './selectorGenerator';
+import type { InjectedScript } from './injectedScript';
 
 const selectorSymbol = Symbol('selector');
-const injectedScriptSymbol = Symbol('injectedScript');
 
 class Locator {
+  [selectorSymbol]: string;
   element: Element | undefined;
   elements: Element[] | undefined;
 
-  constructor(injectedScript: InjectedScript, selector: string, options?: { hasText?: string | RegExp, has?: Locator }) {
-    (this as any)[selectorSymbol] = selector;
-    (this as any)[injectedScriptSymbol] = injectedScript;
+  constructor(injectedScript: InjectedScript, selector: string, options?: { hasText?: string | RegExp, hasNotText?: string | RegExp, has?: Locator, hasNot?: Locator }) {
     if (options?.hasText)
       selector += ` >> internal:has-text=${escapeForTextSelector(options.hasText, false)}`;
+    if (options?.hasNotText)
+      selector += ` >> internal:has-not-text=${escapeForTextSelector(options.hasNotText, false)}`;
     if (options?.has)
-      selector += ` >> internal:has=` + JSON.stringify((options.has as any)[selectorSymbol]);
+      selector += ` >> internal:has=` + JSON.stringify(options.has[selectorSymbol]);
+    if (options?.hasNot)
+      selector += ` >> internal:has-not=` + JSON.stringify(options.hasNot[selectorSymbol]);
+    this[selectorSymbol] = selector;
     if (selector) {
       const parsed = injectedScript.parseSelector(selector);
       this.element = injectedScript.querySelector(parsed, injectedScript.document, false);
@@ -57,7 +59,8 @@ class Locator {
     self.first = (): Locator => self.locator('nth=0');
     self.last = (): Locator => self.locator('nth=-1');
     self.nth = (index: number): Locator => self.locator(`nth=${index}`);
-    self.or = (locator: Locator): Locator => new Locator(injectedScript, selectorBase + ` >> internal:or=` + JSON.stringify((locator as any)[selectorSymbol]));
+    self.and = (locator: Locator): Locator => new Locator(injectedScript, selectorBase + ` >> internal:and=` + JSON.stringify(locator[selectorSymbol]));
+    self.or = (locator: Locator): Locator => new Locator(injectedScript, selectorBase + ` >> internal:or=` + JSON.stringify(locator[selectorSymbol]));
   }
 }
 
@@ -89,6 +92,7 @@ class ConsoleAPI {
     delete this._injectedScript.window.playwright.first;
     delete this._injectedScript.window.playwright.last;
     delete this._injectedScript.window.playwright.nth;
+    delete this._injectedScript.window.playwright.and;
     delete this._injectedScript.window.playwright.or;
   }
 
@@ -115,13 +119,13 @@ class ConsoleAPI {
   private _selector(element: Element) {
     if (!(element instanceof Element))
       throw new Error(`Usage: playwright.selector(element).`);
-    return generateSelector(this._injectedScript, element, this._injectedScript.testIdAttributeNameForStrictErrorAndConsoleCodegen()).selector;
+    return this._injectedScript.generateSelectorSimple(element);
   }
 
   private _generateLocator(element: Element, language?: Language) {
     if (!(element instanceof Element))
       throw new Error(`Usage: playwright.locator(element).`);
-    const selector = generateSelector(this._injectedScript, element, this._injectedScript.testIdAttributeNameForStrictErrorAndConsoleCodegen()).selector;
+    const selector = this._injectedScript.generateSelectorSimple(element);
     return asLocator(language || 'javascript', selector);
   }
 

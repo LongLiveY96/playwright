@@ -22,14 +22,12 @@ import './headerView.css';
 import * as icons from './icons';
 import { Link, navigate } from './links';
 import { statusIcon } from './statusIcon';
-import { msToString } from './uiUtils';
 
 export const HeaderView: React.FC<React.PropsWithChildren<{
   stats: Stats,
   filterText: string,
   setFilterText: (filterText: string) => void,
-  projectNames: string[],
-}>> = ({ stats, filterText, setFilterText, projectNames }) => {
+}>> = ({ stats, filterText, setFilterText }) => {
   React.useEffect(() => {
     const popstateFn = () => {
       const params = new URLSearchParams(window.location.hash.slice(1));
@@ -60,17 +58,13 @@ export const HeaderView: React.FC<React.PropsWithChildren<{
         }}></input>
       </form>
     </div>
-    <div className='pt-2'>
-      {projectNames.length === 1 && !!projectNames[0] && <span data-testid="project-name" style={{ color: 'var(--color-fg-subtle)', float: 'left' }}>Project: {projectNames[0]}</span>}
-      <span data-testid="overall-duration" style={{ color: 'var(--color-fg-subtle)', paddingRight: '10px', float: 'right' }}>Total time: {msToString(stats.duration)}</span>
-    </div>
   </>);
 };
 
 const StatsNavView: React.FC<{
   stats: Stats
 }> = ({ stats }) => {
-  return <nav className='d-flex no-wrap'>
+  return <nav>
     <Link className='subnav-item' href='#?'>
       All <span className='d-inline counter'>{stats.total}</span>
     </Link>

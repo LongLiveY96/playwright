@@ -1,11 +1,14 @@
 {
   "name": "@playwright/experimental-ct-vue",
-  "version": "1.33.0-next",
+  "version": "1.43.0-next",
   "description": "Playwright Component Testing for Vue",
-  "repository": "github:Microsoft/playwright",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/microsoft/playwright.git"
+  },
   "homepage": "https://playwright.dev",
   "engines": {
-    "node": ">=14"
+    "node": ">=16"
   },
   "author": {
     "name": "Microsoft Corporation"
@@ -26,11 +29,10 @@
     }
   },
   "dependencies": {
-    "@vitejs/plugin-vue": "^4.0.0",
-    "@playwright/test": "1.33.0-next",
-    "vite": "^4.1.1"
+    "@playwright/experimental-ct-core": "1.43.0-next",
+    "@vitejs/plugin-vue": "^4.2.1"
   },
   "bin": {
-    "playwright": "./cli.js"
+    "playwright": "cli.js"
   }
 }

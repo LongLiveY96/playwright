@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test';
 
 test('status becomes submitted', async ({ page }) => {
   // ...
-  await page.locator('#submit-button').click()
+  await page.locator('#submit-button').click();
   await expect(page.locator('.status')).toHaveText('Submitted');
 });
 ```
@@ -157,7 +157,7 @@ PlaywrightAssertions.assertThat(page).hasTitle("News");
 ```
 
 ```csharp
-await Expect(page).ToHaveTitleAsync("News");
+await Expect(Page).ToHaveTitleAsync("News");
 ```
 
 ### param: PlaywrightAssertions.expectPage.page

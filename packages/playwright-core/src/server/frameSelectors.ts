@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-import { type Frame } from './frames';
+import type { Frame } from './frames';
 import type * as types from './types';
-import { stringifySelector, type ParsedSelector, splitSelectorByFrame } from '../utils/isomorphic/selectorParser';
-import { type FrameExecutionContext, type ElementHandle } from './dom';
-import { type JSHandle } from './javascript';
-import { type InjectedScript } from './injected/injectedScript';
+import { stringifySelector, type ParsedSelector, splitSelectorByFrame, InvalidSelectorError, visitAllSelectorParts } from '../utils/isomorphic/selectorParser';
+import type { FrameExecutionContext, ElementHandle } from './dom';
+import type { JSHandle } from './javascript';
+import type { InjectedScript } from './injected/injectedScript';
+import { asLocator } from '../utils/isomorphic/locatorGenerators';
 
 export type SelectorInfo = {
   parsed: ParsedSelector,
@@ -65,7 +66,7 @@ export class FrameSelectors {
     const resolved = await this.resolveInjectedForSelector(selector, { mainWorld: true }, scope);
     // Be careful, |this.frame| can be different from |resolved.frame|.
     if (!resolved)
-      throw new Error(`Error: failed to find frame for selector "${selector}"`);
+      throw new Error(`Failed to find frame for selector "${selector}"`);
     return await resolved.injected.evaluateHandle((injected, { info, scope }) => {
       return injected.querySelectorAll(info.parsed, scope || document);
     }, { info: resolved.info, scope: resolved.scope });
@@ -75,7 +76,7 @@ export class FrameSelectors {
     const resolved = await this.resolveInjectedForSelector(selector);
     // Be careful, |this.frame| can be different from |resolved.frame|.
     if (!resolved)
-      throw new Error(`Error: failed to find frame for selector "${selector}"`);
+      throw new Error(`Failed to find frame for selector "${selector}"`);
     return await resolved.injected.evaluate((injected, { info }) => {
       return injected.querySelectorAll(info.parsed, document).length;
     }, { info: resolved.info });
@@ -110,6 +111,15 @@ export class FrameSelectors {
   async resolveFrameForSelector(selector: string, options: types.StrictOptions = {}, scope?: ElementHandle): Promise<SelectorInFrame | null> {
     let frame: Frame = this.frame;
     const frameChunks = splitSelectorByFrame(selector);
+
+    for (const chunk of frameChunks) {
+      visitAllSelectorParts(chunk, (part, nested) => {
+        if (nested && part.name === 'internal:control' && part.body === 'enter-frame') {
+          const locator = asLocator(this.frame._page.attribution.playwright.options.sdkLanguage, selector);
+          throw new InvalidSelectorError(`Frame locators are not allowed inside composite locators, while querying "${locator}"`);
+        }
+      });
+    }
 
     for (let i = 0; i < frameChunks.length - 1; ++i) {
       const info = this._parseSelector(frameChunks[i], options);

@@ -39,7 +39,27 @@ const { _electron: electron } = require('playwright');
 ## event: ElectronApplication.close
 * since: v1.9
 
-This event is issued when the application closes.
+This event is issued when the application process has been terminated.
+
+## event: ElectronApplication.console
+* since: v1.42
+- argument: <[ConsoleMessage]>
+
+Emitted when JavaScript within the Electron main process calls one of console API methods, e.g. `console.log` or `console.dir`.
+
+The arguments passed into `console.log` are available on the [ConsoleMessage] event handler argument.
+
+**Usage**
+
+```js
+electronApp.on('console', async msg => {
+  const values = [];
+  for (const arg of msg.args())
+    values.push(await arg.jsonValue());
+  console.log(...values);
+});
+await electronApp.evaluate(() => console.log('hello', 5, { foo: 'bar' }));
+```
 
 ## event: ElectronApplication.window
 * since: v1.9
@@ -128,12 +148,20 @@ Convenience method that waits for the first application window to be opened.
 **Usage**
 
 ```js
-  const electronApp = await electron.launch({
-    args: ['main.js']
-  });
-  const window = await electronApp.firstWindow();
-  // ...
+const electronApp = await electron.launch({
+  args: ['main.js']
+});
+const window = await electronApp.firstWindow();
+// ...
 ```
+
+### option: ElectronApplication.firstWindow.timeout
+* since: v1.33
+- `timeout` ?<[float]>
+
+Maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds).
+Pass `0` to disable timeout. The default value can be changed by using the
+[`method: BrowserContext.setDefaultTimeout`].
 
 ## method: ElectronApplication.process
 * since: v1.21

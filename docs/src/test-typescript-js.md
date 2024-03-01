@@ -3,73 +3,28 @@ id: test-typescript
 title: "TypeScript"
 ---
 
-Playwright Test supports TypeScript out of the box. You just write tests in TypeScript and Playwright Test will read them, transform to JavaScript and run. This works both with [CommonJS modules](https://nodejs.org/api/modules.html) and [ECMAScript modules](https://nodejs.org/api/esm.html).
+## Introduction
 
-## TypeScript with CommonJS
+Playwright supports TypeScript out of the box. You just write tests in TypeScript, and Playwright will read them, transform to JavaScript and run. Note that Playwright does not check the types and will run tests even if there are non-critical TypeScript compilation errors.
 
-[Node.js](https://nodejs.org/en/) works with CommonJS modules **by default**. Unless you use `'.mjs'` or `'.mts'` extensions, or specify `type: "module"` in your `package.json`, Playwright Test will treat all TypeScript files as CommonJS. You can then import as usual without an extension.
+We recommend you run TypeScript compiler alongside Playwright. For example on GitHub actions:
 
-Consider this helper module written in TypeScript:
-
-```js
-// helper.ts
-export const username = 'John';
-export const password = 'secret';
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    ...
+    - name: Run type checks
+      run: npx tsc -p tsconfig.json --noEmit
+    - name: Run Playwright tests
+      run: npx playwright test
 ```
 
-You can import from the helper as usual:
-
-```js
-// example.spec.ts
-import { test, expect } from '@playwright/test';
-import { username, password } from './helper';
-
-test('example', async ({ page }) => {
-  await page.getByLabel('User Name').fill(username);
-  await page.getByLabel('Password').fill(password);
-});
+For local development, you can run `tsc` in [watch](https://www.typescriptlang.org/docs/handbook/configuring-watch.html) mode like this:
+```sh
+npx tsc -p tsconfig.json --noEmit -w
 ```
-
-## TypeScript with ESM
-
-You can opt into using [ECMAScript modules](https://nodejs.org/api/esm.html) by setting `type: "module"` in your `package.json` file. Playwright Test will switch to the ESM mode once it reads the `playwright.config.ts` file, so make sure you have one.
-
-Playwright Test follows the [experimental support for ESM in TypeScript](https://www.typescriptlang.org/docs/handbook/esm-node.html) and, according to the specification, **requires a file extension** when importing from a module, either `'.js'` or `'.ts'`.
-
-First, enable modules in your `package.json`:
-
-```json
-{
-  "name": "my-package",
-  "version": "1.0.0",
-  "type": "module",
-}
-```
-
-Then write the helper module in TypeScript as usual:
-
-```js
-// helper.ts
-export const username = 'John';
-export const password = 'secret';
-```
-
-Specify the extension when importing from a module:
-
-```js
-// example.spec.ts
-import { test, expect } from '@playwright/test';
-import { username, password } from './helper.ts';
-
-test('example', async ({ page }) => {
-  await page.getByLabel('User Name').fill(username);
-  await page.getByLabel('Password').fill(password);
-});
-```
-
-:::note
-TypeScript with ESM requires Node.js 16 or higher.
-:::
 
 ## tsconfig.json
 
@@ -77,7 +32,7 @@ Playwright will pick up `tsconfig.json` for each source file it loads. Note that
 
 We recommend setting up a separate `tsconfig.json` in the tests directory so that you can change some preferences specifically for the tests. Here is an example directory structure.
 
-```
+```txt
 src/
     source.ts
 
@@ -109,8 +64,7 @@ Here is an example `tsconfig.json` that works with Playwright Test:
 
 You can now import using the mapped paths:
 
-```js
-// example.spec.ts
+```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';
 import { username, password } from '@myhelper/credentials';
 
@@ -154,3 +108,16 @@ In `package.json`, add two scripts:
 The `pretest` script runs typescript on the tests. `test` will run the tests that have been generated to the `tests-out` directory. The `-c` argument configures the test runner to look for tests inside the `tests-out` directory.
 
 Then `npm run test` will build the tests and run them.
+
+## Using `import` inside `evaluate()`
+
+Using dynamic imports inside a function passed to various `evaluate()` methods is not supported. This is because Playwright uses `Function.prototype.toString()` to serialize functions, and transpiler will sometimes replace dynamic imports with `require()` calls, which are not valid inside the web page.
+
+To work around this issue, use a string template instead of a function:
+
+```js
+await page.evaluate(`(async () => {
+  const { value } = await import('some-module');
+  console.log(value);
+})()`);
+```

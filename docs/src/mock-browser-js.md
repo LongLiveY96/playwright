@@ -3,6 +3,8 @@ id: mock-browser-apis
 title: "Mock browser APIs"
 ---
 
+## Introduction
+
 Playwright provides native support for most of the browser features. However, there are some experimental APIs
 and APIs which are not (yet) fully supported by all browsers. Playwright usually doesn't provide dedicated
 automation APIs in such cases. You can use mocks to test the behavior of your application in such cases. This guide gives a few examples.
@@ -130,7 +132,7 @@ test('update battery status (no golden)', async ({ page }) => {
         this.charging = value;
         this._chargingListeners.forEach(cb => cb());
       }
-    };
+    }
     const mockBattery = new BatteryMock();
     // Override the method to always return mock battery info.
     window.navigator.getBattery = async () => mockBattery;

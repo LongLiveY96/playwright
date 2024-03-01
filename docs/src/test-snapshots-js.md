@@ -3,10 +3,11 @@ id: test-snapshots
 title: "Visual comparisons"
 ---
 
+## Introduction
+
 Playwright Test includes the ability to produce and visually compare screenshots using `await expect(page).toHaveScreenshot()`. On first execution, Playwright test will generate reference screenshots. Subsequent runs will compare against the reference.
 
-```js
-// example.spec.ts
+```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';
 
 test('example test', async ({ page }) => {
@@ -15,8 +16,11 @@ test('example test', async ({ page }) => {
 });
 ```
 
+## Generating screenshots
+
 When you run above for the first time, test runner will say:
-```
+
+```txt
 Error: A snapshot doesn't exist at example.spec.ts-snapshots/example-test-1-chromium-darwin.png, writing actual.
 ```
 
@@ -40,13 +44,7 @@ The snapshot name `example-test-1-chromium-darwin.png` consists of a few parts:
 
 - `chromium-darwin` - the browser name and the platform. Screenshots differ between browsers and platforms due to different rendering, fonts and more, so you will need different snapshots for them. If you use multiple projects in your [configuration file](./test-configuration.md), project name will be used instead of `chromium`.
 
-If you are not on the same operating system as your CI system, you can use Docker to generate/update the screenshots:
-
-```bash
-docker run --rm --network host -v $(pwd):/work/ -w /work/ -it mcr.microsoft.com/playwright:v1.33.0-focal /bin/bash
-npm install
-npx playwright test --update-snapshots
-```
+## Updating screenshots
 
 Sometimes you need to update the reference screenshot, for example when the page has changed. Do this with the  `--update-snapshots` flag.
 
@@ -57,10 +55,13 @@ npx playwright test --update-snapshots
 > Note that `snapshotName` also accepts an array of path segments to the snapshot file such as `expect().toHaveScreenshot(['relative', 'path', 'to', 'snapshot.png'])`.
 > However, this path must stay within the snapshots directory for each test file (i.e. `a.spec.js-snapshots`), otherwise it will throw.
 
-Playwright Test uses the [pixelmatch](https://github.com/mapbox/pixelmatch) library. You can [pass various options](./test-assertions#page-assertions-to-have-screenshot-2) to modify its behavior:
+## Options
 
-```js
-// example.spec.ts
+### maxDiffPixels
+
+Playwright Test uses the [pixelmatch](https://github.com/mapbox/pixelmatch) library. You can [pass various options](./api/class-pageassertions.md#page-assertions-to-have-screenshot-1) to modify its behavior:
+
+```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';
 
 test('example test', async ({ page }) => {
@@ -71,7 +72,7 @@ test('example test', async ({ page }) => {
 
 If you'd like to share the default value among all the tests in the project, you can specify it in the playwright config, either globally or per project:
 
-```js
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   expect: {
@@ -80,12 +81,47 @@ export default defineConfig({
 });
 ```
 
+### stylePath
+
+You can apply a custom stylesheet to your page while taking screenshot. This
+allows filtering out dynamic or volatile elements, hence improving the screenshot
+determinism.
+
+```css title="screenshot.css"
+iframe {
+  visibility: hidden;
+}
+```
+
+```js title="example.spec.ts"
+import { test, expect } from '@playwright/test';
+
+test('example test', async ({ page }) => {
+  await page.goto('https://playwright.dev');
+  await expect(page).toHaveScreenshot({ stylePath: path.join(__dirname, 'screenshot.css') });
+});
+```
+
+If you'd like to share the default value among all the tests in the project, you can specify it in the playwright config, either globally or per project:
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  expect: {
+    toHaveScreenshot: {
+      stylePath: './screenshot.css'
+    },
+  },
+});
+```
+
+## Non-image snapshots
+
 Apart from screenshots, you can use `expect(value).toMatchSnapshot(snapshotName)` to compare text or arbitrary binary data. Playwright Test auto-detects the content type and uses the appropriate comparison algorithm.
 
 Here we compare text content against the reference.
 
-```js
-// example.spec.ts
+```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';
 
 test('example test', async ({ page }) => {

@@ -38,22 +38,6 @@ it('should click button inside frameset', async ({ page, server }) => {
   expect(await frame.evaluate('result')).toBe('Clicked');
 });
 
-it('should click a button that closes popup', async ({ page }) => {
-  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20093' });
-  const [popup] = await Promise.all([
-    page.waitForEvent('popup'),
-    page.evaluate(() => window.open('')),
-  ]);
-  await popup.setContent(`<button>clickme</button>`);
-  await popup.$eval('button', body => body.addEventListener('click', () => {
-    window.close();
-  }));
-  await Promise.all([
-    popup.locator('button').click(), // throws in Firefox, but not in Chromium or WebKit
-    popup.waitForEvent('close'),
-  ]);
-});
-
 it('should issue clicks in parallel in page and popup', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/counter.html');
   const [popup] = await Promise.all([
@@ -160,8 +144,6 @@ it('should select the text by triple clicking', async ({ page, server }) => {
 });
 
 it('should click offscreen buttons', async ({ page, server, browserName, headless }) => {
-  it.fixme(!headless && browserName === 'firefox' && process.platform === 'darwin', 'https://github.com/microsoft/playwright/issues/20993');
-
   await page.goto(server.PREFIX + '/offscreenbuttons.html');
   const messages = [];
   page.on('console', msg => messages.push(msg.text()));
@@ -430,7 +412,6 @@ it('should click the button with em border with offset', async ({ page, server, 
 });
 
 it('should click a very large button with offset', async ({ page, server, browserName }) => {
-
   await page.goto(server.PREFIX + '/input/button.html');
   await page.$eval('button', button => button.style.borderWidth = '8px');
   await page.$eval('button', button => button.style.height = button.style.width = '2000px');
@@ -442,7 +423,6 @@ it('should click a very large button with offset', async ({ page, server, browse
 });
 
 it('should click a button in scrolling container with offset', async ({ page, server, browserName }) => {
-
   await page.goto(server.PREFIX + '/input/button.html');
   await page.$eval('button', button => {
     const container = document.createElement('div');
@@ -880,9 +860,12 @@ it('should not hang when frame is detached', async ({ page, server, mode }) => {
 
   let resolveDetachPromise;
   const detachPromise = new Promise(resolve => resolveDetachPromise = resolve);
+  let firstTime = true;
   const __testHookBeforeStable = () => {
     // Detach the frame after "waiting for stable" has started.
-
+    if (!firstTime)
+      return;
+    firstTime = false;
     setTimeout(async () => {
       await detachFrame(page, 'frame1');
       resolveDetachPromise();
@@ -996,6 +979,36 @@ it('should click in a transformed iframe', async ({ page }) => {
   expect(await page.evaluate('window._clicked')).toBe(true);
 });
 
+it('should click a button that is overlayed by a permission popup', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23280' });
+  await page.setViewportSize({ width: 500, height: 500 });
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`
+    <style>body, html { padding: 0; margin: 0; }</style>
+    <script type='text/javascript'>
+      window.addEventListener('DOMContentLoaded', () => {
+        // Viewport filled with buttons.
+        for (let i = 0; i < 100; ++i) {
+          const button = document.createElement('button');
+          button.textContent = i;
+          button.style.setProperty('width', '50px');
+          button.style.setProperty('height', '50px');
+          document.body.append(button);
+        }
+      }, false);
+    </script>
+  `);
+  // Issue a geolocation request. This should show a browser popup.
+  // NOTE: this is a bit racy since we can't wait for the geolocation
+  // popup to be shown.
+  await page.evaluate(() => {
+    navigator.geolocation.getCurrentPosition(position => { });
+  });
+  // If popup blocks the click, then some of the `page.click` calls below will hang.
+  for (let i = 0; i < 100; ++i)
+    await page.click(`text=${i}`);
+});
+
 it('should click in a transformed iframe with force', async ({ page }) => {
   await page.setContent(`
     <style>
@@ -1061,7 +1074,7 @@ it('ensure events are dispatched in the individual tasks', async ({ page, browse
         console.log(`timeout ${name}`);
       }, 0);
 
-      Promise.resolve().then(function() {
+      void Promise.resolve().then(function() {
         console.log(`promise ${name}`);
       });
     }
@@ -1084,5 +1097,50 @@ it('ensure events are dispatched in the individual tasks', async ({ page, browse
     'promise outer',
     'timeout inner',
     'timeout outer',
+  ]);
+});
+
+it('should click if opened select covers the button', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23618' });
+  await page.setContent(`
+    <div>
+      <select>
+        <option>very long text #1</option>
+        <option>very long text #2</option>
+        <option>very long text #3</option>
+        <option>very long text #4</option>
+        <option>very long text #5</option>
+        <option>very long text #6</option>
+      </select>
+    </div>
+    <div>
+      <button onclick="javascript:window.__CLICKED=42">clickme</button>
+    </div>
+  `);
+  await page.click('select');
+  await page.click('button');
+  expect(await page.evaluate('window.__CLICKED')).toBe(42);
+});
+
+it('should fire contextmenu event on right click in correct order', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26515' });
+  it.fixme(browserName === 'chromium', 'mouseup is fired');
+  it.fixme(browserName === 'firefox', 'mouseup is fired');
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`
+    <button id="target">Click me</button>
+  `);
+  await page.evaluate(() => {
+    const logEvent = e => console.log(e.type);
+    document.addEventListener('mousedown', logEvent);
+    document.addEventListener('mouseup', logEvent);
+    document.addEventListener('contextmenu', logEvent);
+  });
+  const entries = [];
+  page.on('console', message => entries.push(message.text()));
+  await page.getByRole('button', { name: 'Click me' }).click({ button: 'right' });
+  await expect.poll(() => entries).toEqual([
+    'mousedown',
+    'contextmenu',
   ]);
 });

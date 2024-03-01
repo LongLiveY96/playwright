@@ -72,21 +72,21 @@ test('should check types of fixtures', async ({ runTSC }) => {
         baz: true,
       });
       const fail9 = test.extend<{ foo: string }>({
+        // @ts-expect-error
         foo: [ async ({}, use) => {
           await use('foo');
-        // @ts-expect-error
         }, { scope: 'test', auto: true } ],
       });
       const fail10 = test.extend<{}, {}>({
+        // @ts-expect-error
         bar: [ async ({}, use) => {
           await use(42);
-        // @ts-expect-error
         }, { scope: 'test' } ],
       });
       const fail11 = test.extend<{ yay: string }>({
+        // @ts-expect-error
         yay: [ async ({}, use) => {
           await use('foo');
-        // @ts-expect-error
         }, { scope: 'test', timeout: 'str' } ],
       });
 
@@ -266,6 +266,26 @@ test('should check types of fixtures', async ({ runTSC }) => {
           // @ts-expect-error
           hasTouch: 'foo',
         },
+      });
+    `,
+    'playwright-define-merge.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      const config0 = defineConfig({
+        timeout: 1,
+        // @ts-expect-error
+        grep: 23,
+      }, {
+        timeout: 2,
+      });
+    `,
+    'playwright-define-merge-ct.config.ts': `
+      import { defineConfig } from '@playwright/experimental-ct-vue';
+      const config0 = defineConfig({
+        timeout: 1,
+        // @ts-expect-error
+        grep: 23,
+      }, {
+        timeout: 2,
       });
     `,
   });

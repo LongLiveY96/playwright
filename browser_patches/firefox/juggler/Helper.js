@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 const uuidGen = Cc["@mozilla.org/uuid-generator;1"].getService(Ci.nsIUUIDGenerator);
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 class Helper {
   decorateAsEventEmitter(objectToDecorate) {
@@ -22,6 +21,16 @@ class Helper {
     for (const child of rootBrowsingContext.children)
       this.collectAllBrowsingContexts(child, allBrowsingContexts);
     return allBrowsingContexts;
+  }
+
+  awaitTopic(topic) {
+    return new Promise(resolve => {
+      const listener = () => {
+        Services.obs.removeObserver(listener, topic);
+        resolve();
+      }
+      Services.obs.addObserver(listener, topic);
+    });
   }
 
   toProtocolNavigationId(loadIdentifier) {
@@ -46,7 +55,7 @@ class Helper {
       } catch (e) {
         // This could fail when window has navigated cross-process
         // and we remove the listener from WindowProxy.
-        dump(`WARNING: removeEventListener throws ${e} at ${new Error().stack}\n`);
+        // Nothing we can do here - so ignore the error.
       }
     };
   }
@@ -164,7 +173,10 @@ class Helper {
 const helper = new Helper();
 
 class EventWatcher {
-  constructor(receiver, eventNames) {
+  constructor(receiver, eventNames, pendingEventWatchers = new Set()) {
+    this._pendingEventWatchers = pendingEventWatchers;
+    this._pendingEventWatchers.add(this);
+
     this._events = [];
     this._pendingPromises = [];
     this._eventListeners = eventNames.map(eventName =>
@@ -213,6 +225,7 @@ class EventWatcher {
   }
 
   dispose() {
+    this._pendingEventWatchers.delete(this);
     for (const promise of this._pendingPromises)
       promise.reject(new Error('EventWatcher is being disposed'));
     this._pendingPromises = [];

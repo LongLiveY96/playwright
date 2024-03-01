@@ -8,8 +8,7 @@ Playwright Test supports running multiple test projects at the same time. This i
 
 Here is an example configuration that runs every test in Chromium, Firefox and WebKit, both Desktop and Mobile versions.
 
-```js
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
@@ -57,10 +56,9 @@ behaves as if they were not specified.
 Using dependencies allows global setup to produce traces and other artifacts,
 see the setup steps in the test report, etc.
 
-For example:
+**Usage**
 
-```js
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -99,10 +97,13 @@ export default defineConfig({
     - `animations` ?<[ScreenshotAnimations]<"allow"|"disabled">> See [`option: animations`] in [`method: Page.screenshot`]. Defaults to `"disabled"`.
     - `caret` ?<[ScreenshotCaret]<"hide"|"initial">> See [`option: caret`] in [`method: Page.screenshot`]. Defaults to `"hide"`.
     - `scale` ?<[ScreenshotScale]<"css"|"device">> See [`option: scale`] in [`method: Page.screenshot`]. Defaults to `"css"`.
+    - `stylePath` ?<[string]|[Array]<[string]>> See [`option: style`] in [`method: Page.screenshot`].
   - `toMatchSnapshot` ?<[Object]> Configuration for the [`method: SnapshotAssertions.toMatchSnapshot#1`] method.
     - `threshold` ?<[float]> an acceptable perceived color difference between the same pixel in compared images, ranging from `0` (strict) and `1` (lax). `"pixelmatch"` comparator computes color difference in [YIQ color space](https://en.wikipedia.org/wiki/YIQ) and defaults `threshold` value to `0.2`.
     - `maxDiffPixels` ?<[int]> an acceptable amount of pixels that could be different, unset by default.
     - `maxDiffPixelRatio` ?<[float]> an acceptable ratio of pixels that are different to the total amount of pixels, between `0` and `1` , unset by default.
+  - `toPass` ?<[Object]> Configuration for the [expect(value).toPass()](../test-assertions.md) method.
+    - `timeout` ?<[int]> timeout for toPass method in milliseconds.
 
 Configuration for the `expect` assertion library.
 
@@ -121,7 +122,7 @@ You can configure entire test project to concurrently run all tests in all files
 * since: v1.10
 - type: ?<[RegExp]|[Array]<[RegExp]>>
 
-Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available globally and in the [command line](../test-cli.md) with the `-g` option. The regular expression will be tested against the string that consists of the test file name, `test.describe` name (if any) and the test name divided by spaces, e.g. `my-test.spec.ts my suite my test`.
+Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available globally and in the [command line](../test-cli.md) with the `-g` option. The regular expression will be tested against the string that consists of the test file name, `test.describe` name (if any) and the test name divided by spaces, e.g. `my-test.spec.ts my-suite my-test`.
 
 `grep` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
 
@@ -198,6 +199,52 @@ Use [`method: Test.describe.configure`] to change the number of retries for a sp
 
 Use [`property: TestConfig.retries`] to change this option for all projects.
 
+
+## property: TestProject.teardown
+* since: v1.34
+- type: ?<[string]>
+
+Name of a project that needs to run after this and all dependent projects have finished. Teardown is useful to cleanup any resources acquired by this project.
+
+Passing `--no-deps` argument ignores [`property: TestProject.teardown`] and behaves as if it was not specified.
+
+**Usage**
+
+A common pattern is a "setup" dependency that has a corresponding "teardown":
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  projects: [
+    {
+      name: 'setup',
+      testMatch: /global.setup\.ts/,
+      teardown: 'teardown',
+    },
+    {
+      name: 'teardown',
+      testMatch: /global.teardown\.ts/,
+    },
+    {
+      name: 'chromium',
+      use: devices['Desktop Chrome'],
+      dependencies: ['setup'],
+    },
+    {
+      name: 'firefox',
+      use: devices['Desktop Firefox'],
+      dependencies: ['setup'],
+    },
+    {
+      name: 'webkit',
+      use: devices['Desktop Safari'],
+      dependencies: ['setup'],
+    },
+  ],
+});
+```
+
 ## property: TestProject.testDir
 * since: v1.10
 - type: ?<[string]>
@@ -206,8 +253,7 @@ Directory that will be recursively scanned for test files. Defaults to the direc
 
 Each project can use a different directory. Here is an example that runs smoke tests in three browsers and all other tests in stable Chrome browser.
 
-```js
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -263,7 +309,7 @@ Use [`property: TestConfig.testIgnore`] to change this option for all projects.
 
 Only the files matching one of these patterns are executed as test files. Matching is performed against the absolute file path. Strings are treated as glob patterns.
 
-By default, Playwright Test looks for files matching `.*(test|spec)\.(js|ts|mjs)`.
+By default, Playwright looks for files matching the following glob pattern: `**/*.@(spec|test).?(c|m)[jt]s?(x)`. This means JavaScript or TypeScript files with `".test"` or `".spec"` suffix, for example `login-screen.wrong-credentials.spec.ts`.
 
 Use [`property: TestConfig.testMatch`] to change this option for all projects.
 
@@ -283,8 +329,7 @@ Use [`property: TestConfig.timeout`] to change this option for all projects.
 
 Options for all tests in this project, for example [`property: TestOptions.browserName`]. Learn more about [configuration](../test-configuration.md) and see [available options][TestOptions].
 
-```js
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({

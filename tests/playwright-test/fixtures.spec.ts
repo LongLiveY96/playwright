@@ -388,26 +388,26 @@ test('automatic fixtures should work', async ({ runInlineTest }) => {
       test.beforeEach(async ({}) => {
         expect(counterWorker).toBe(1);
         expect(counterTest === 1 || counterTest === 2).toBe(true);
-        expect(counterHooksIncluded === 1 || counterHooksIncluded === 2).toBe(true);
+        expect(counterHooksIncluded === 2 || counterHooksIncluded === 3).toBe(true);
       });
       test('test 1', async ({}) => {
         expect(counterWorker).toBe(1);
-        expect(counterHooksIncluded).toBe(1);
+        expect(counterHooksIncluded).toBe(2);
         expect(counterTest).toBe(1);
       });
       test('test 2', async ({}) => {
         expect(counterWorker).toBe(1);
-        expect(counterHooksIncluded).toBe(2);
+        expect(counterHooksIncluded).toBe(3);
         expect(counterTest).toBe(2);
       });
       test.afterEach(async ({}) => {
         expect(counterWorker).toBe(1);
         expect(counterTest === 1 || counterTest === 2).toBe(true);
-        expect(counterHooksIncluded === 1 || counterHooksIncluded === 2).toBe(true);
+        expect(counterHooksIncluded === 2 || counterHooksIncluded === 3).toBe(true);
       });
       test.afterAll(async ({}) => {
         expect(counterWorker).toBe(1);
-        expect(counterHooksIncluded).toBe(2);
+        expect(counterHooksIncluded).toBe(4);
         expect(counterTest).toBe(2);
       });
     `
@@ -782,4 +782,37 @@ test('worker teardown errors reflected in timed-out tests', async ({ runInlineTe
   expect(result.failed).toBe(1);
   expect(result.output).toContain('Test timeout of 1000ms exceeded.');
   expect(result.output).toContain('Rejecting!');
+});
+
+test('automatic worker fixtures should start before automatic test fixtures', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+          autoTest: [async ({}, use) => {
+              console.log('\\n%%TEST FIXTURE 1');
+              await use();
+              console.log('\\n%%TEST FIXTURE 2');
+          }, { scope: 'test', auto: true }],
+
+          autoWorker: [async ({}, use) => {
+              console.log('\\n%%WORKER FIXTURE 1');
+              await use();
+              console.log('\\n%%WORKER FIXTURE 2');
+          }, { scope: 'worker', auto: true }],
+      });
+
+      test('test', async () => {
+          console.log('\\n%%TEST');
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.outputLines).toEqual([
+    'WORKER FIXTURE 1',
+    'TEST FIXTURE 1',
+    'TEST',
+    'TEST FIXTURE 2',
+    'WORKER FIXTURE 2',
+  ]);
 });

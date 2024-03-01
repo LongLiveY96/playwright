@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import { test, expect, dumpTestTree } from './ui-mode-fixtures';
+import { test, expect, retries, dumpTestTree } from './ui-mode-fixtures';
 
-test.describe.configure({ mode: 'parallel' });
+test.describe.configure({ mode: 'parallel', retries });
 
 const basicTestTree = {
   'a.test.ts': `
@@ -31,8 +31,8 @@ const basicTestTree = {
 };
 
 test('should show selected test in sources', async ({ runUITest }) => {
-  const page = await runUITest(basicTestTree);
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  const { page } = await runUITest(basicTestTree);
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
         ◯ first
         ◯ second
@@ -63,4 +63,68 @@ test('should show selected test in sources', async ({ runUITest }) => {
   await expect(
       page.locator('.CodeMirror .source-line-running'),
   ).toHaveText(`3    test('third', () => {});`);
+});
+
+test('should show top-level errors in file', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test } from '@playwright/test';
+      const a = 1;
+      a = 2;
+      test('first', () => {});
+      test('second', () => {});
+    `,
+    'b.test.ts': `
+      import { test } from '@playwright/test';
+      test('third', () => {});
+    `,
+  });
+  await expect.poll(dumpTestTree(page)).toBe(`
+      ◯ a.test.ts
+    ▼ ◯ b.test.ts
+        ◯ third
+  `);
+
+  await page.getByTestId('test-tree').getByText('a.test.ts').click();
+  await expect(
+      page.getByTestId('source-code').locator('.source-tab-file-name')
+  ).toHaveText('a.test.ts');
+  await expect(
+      page.locator('.CodeMirror .source-line-running'),
+  ).toHaveText(`4      a = 2;`);
+
+  await expect(
+      page.locator('.CodeMirror-linewidget')
+  ).toHaveText([
+    '            ',
+    'TypeError: Assignment to constant variable.'
+  ]);
+});
+
+test('should show syntax errors in file', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test } from '@playwright/test'&
+      test('first', () => {});
+      test('second', () => {});
+    `,
+  });
+  await expect.poll(dumpTestTree(page)).toBe(`
+      ◯ a.test.ts
+  `);
+
+  await page.getByTestId('test-tree').getByText('a.test.ts').click();
+  await expect(
+      page.getByTestId('source-code').locator('.source-tab-file-name')
+  ).toHaveText('a.test.ts');
+  await expect(
+      page.locator('.CodeMirror .source-line-running'),
+  ).toHaveText(`2      import { test } from '@playwright/test'&`);
+
+  await expect(
+      page.locator('.CodeMirror-linewidget')
+  ).toHaveText([
+    '                                              ',
+    /Missing semicolon./
+  ]);
 });

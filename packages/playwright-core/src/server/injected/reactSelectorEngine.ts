@@ -43,13 +43,23 @@ type ReactVNode = {
   _renderedChildren?: any[],
 };
 
+function getFunctionComponentName(component: any) {
+  return component.displayName || component.name || 'Anonymous';
+}
+
 function getComponentName(reactElement: ReactVNode): string {
   // React 16+
   // @see https://github.com/baruchvlz/resq/blob/5c15a5e04d3f7174087248f5a158c3d6dcc1ec72/src/utils.js#L16
-  if (typeof reactElement.type === 'function')
-    return reactElement.type.displayName || reactElement.type.name || 'Anonymous';
-  if (typeof reactElement.type === 'string')
-    return reactElement.type;
+  if (reactElement.type) {
+    switch (typeof reactElement.type) {
+      case 'function':
+        return getFunctionComponentName(reactElement.type);
+      case 'string':
+        return reactElement.type;
+      case 'object': // support memo and forwardRef
+        return reactElement.type.displayName || (reactElement.type.render ? getFunctionComponentName(reactElement.type.render) : '');
+    }
+  }
 
   // React 15
   // @see https://github.com/facebook/react/blob/2edf449803378b5c58168727d4f123de3ba5d37f/packages/react-devtools-shared/src/backend/legacy/renderer.js#L59
@@ -147,16 +157,20 @@ function findReactRoots(root: Document | ShadowRoot, roots: ReactVNode[] = []): 
   do {
     const node = walker.currentNode;
 
+    const reactNode = node as { readonly [customKey: string]: any };
     // React 17+
     // React sets rootKey when mounting
     // @see https://github.com/facebook/react/blob/a724a3b578dce77d427bef313102a4d0e978d9b4/packages/react-dom/src/client/ReactDOMComponentTree.js#L62-L64
-    const rootKey = Object.keys(node).find(key => key.startsWith('__reactContainer'));
+    const rootKey = Object.keys(reactNode).find(key => key.startsWith('__reactContainer') && reactNode[key] !== null);
     if (rootKey) {
-      roots.push((node as any)[rootKey].stateNode.current);
-    } else if (node.hasOwnProperty('_reactRootContainer')) {
-      // ReactDOM Legacy client API:
-      // @see https://github.com/baruchvlz/resq/blob/5c15a5e04d3f7174087248f5a158c3d6dcc1ec72/src/utils.js#L329
-      roots.push((node as any)._reactRootContainer._internalRoot.current);
+      roots.push(reactNode[rootKey].stateNode.current);
+    } else {
+      const legacyRootKey = '_reactRootContainer';
+      if (reactNode.hasOwnProperty(legacyRootKey) && reactNode[legacyRootKey] !== null) {
+        // ReactDOM Legacy client API:
+        // @see https://github.com/baruchvlz/resq/blob/5c15a5e04d3f7174087248f5a158c3d6dcc1ec72/src/utils.js#L329
+        roots.push(reactNode[legacyRootKey]._internalRoot.current);
+      }
     }
 
     // Pre-react 16: rely on `data-reactroot`

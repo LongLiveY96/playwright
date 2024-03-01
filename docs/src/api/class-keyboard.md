@@ -215,6 +215,10 @@ Sets input to the specified text value.
 ## async method: Keyboard.press
 * since: v1.8
 
+:::tip
+In most cases, you should use [`method: Locator.press`] instead.
+:::
+
 [`param: key`] can specify the intended
 [keyboardEvent.key](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key) value or a single character to
 generate the text for. A superset of the [`param: key`] values can be found
@@ -230,7 +234,7 @@ Holding down `Shift` will type the text that corresponds to the [`param: key`] i
 If [`param: key`] is a single character, it is case-sensitive, so the values `a` and `A` will generate different
 respective texts.
 
-Shortcuts such as `key: "Control+o"` or `key: "Control+Shift+T"` are supported as well. When specified with the
+Shortcuts such as `key: "Control+o"`, `key: "Control++` or `key: "Control+Shift+T"` are supported as well. When specified with the
 modifier, modifier is pressed and being held while the subsequent key is being pressed.
 
 **Usage**
@@ -311,6 +315,10 @@ Time to wait between `keydown` and `keyup` in milliseconds. Defaults to 0.
 ## async method: Keyboard.type
 * since: v1.8
 
+:::caution
+In most cases, you should use [`method: Locator.fill`] instead. You only need to press keys one by one if there is special keyboard handling on the page - in this case use [`method: Locator.pressSequentially`].
+:::
+
 Sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text.
 
 To press a special key, like `Control` or `ArrowDown`, use [`method: Keyboard.press`].
@@ -319,7 +327,7 @@ To press a special key, like `Control` or `ArrowDown`, use [`method: Keyboard.pr
 
 ```js
 await page.keyboard.type('Hello'); // Types instantly
-await page.keyboard.type('World', {delay: 100}); // Types slower, like a user
+await page.keyboard.type('World', { delay: 100 }); // Types slower, like a user
 ```
 
 ```java

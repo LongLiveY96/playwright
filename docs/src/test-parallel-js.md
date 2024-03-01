@@ -1,7 +1,9 @@
 ---
 id: test-parallel
-title: "Parallelism and sharding"
+title: "Parallelism"
 ---
+
+## Introduction
 
 Playwright Test runs tests in parallel. In order to achieve that, it runs several worker processes that run at the same time. By default, **test files** are run in parallel. Tests in a single file are run in order, in the same worker process.
 
@@ -30,7 +32,7 @@ npx playwright test --workers 4
 
 In the configuration file:
 
-```js
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -64,7 +66,7 @@ test('runs in parallel 2', async ({ page }) => { /* ... */ });
 
 Alternatively, you can opt-in all tests into this fully-parallel mode in the configuration file:
 
-```js
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -74,7 +76,7 @@ export default defineConfig({
 
 You can also opt in for fully-parallel mode for just a few projects:
 
-```js
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -99,7 +101,7 @@ Using serial is not recommended. It is usually better to make your tests isolate
 :::
 
 ```js
-import { test, Page } from '@playwright/test';
+import { test, type Page } from '@playwright/test';
 
 // Annotate entire file as serial.
 test.describe.configure({ mode: 'serial' });
@@ -125,15 +127,12 @@ test('runs second', async () => {
 
 ## Shard tests between multiple machines
 
-Playwright Test can shard a test suite, so that it can be executed on multiple machines. For that,  pass `--shard=x/y` to the command line. For example, to split the suite into three shards, each running one third of the tests:
+Playwright Test can shard a test suite, so that it can be executed on multiple machines.
+See [sharding guide](./test-sharding.md) for more details.
 
 ```bash
-npx playwright test --shard=1/3
 npx playwright test --shard=2/3
-npx playwright test --shard=3/3
 ```
-
-That way your test suite completes 3 times faster.
 
 ## Limit failures and fail fast
 
@@ -148,7 +147,7 @@ npx playwright test --max-failures=10
 
 Setting in the configuration file:
 
-```js
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -163,6 +162,48 @@ Each worker process is assigned two ids: a unique worker index that starts with 
 
 You can read an index from environment variables `process.env.TEST_WORKER_INDEX` and `process.env.TEST_PARALLEL_INDEX`, or access them through [`property: TestInfo.workerIndex`] and [`property: TestInfo.parallelIndex`].
 
+### Isolate test data between parallel workers
+
+You can leverage `process.env.TEST_WORKER_INDEX` or [`property: TestInfo.workerIndex`] mentioned above to
+isolate user data in the database between tests running on different workers. All tests run by the worker
+reuse the same user.
+
+Create `playwright/fixtures.ts` file that will [create `dbUserName` fixture](./test-fixtures#creating-a-fixture)
+and initialize a new user in the test database. Use [`property: TestInfo.workerIndex`] to differentiate
+between workers.
+
+```js title="playwright/fixtures.ts"
+import { test as baseTest, expect } from '@playwright/test';
+// Import project utils for managing users in the test database.
+import { createUserInTestDatabase, deleteUserFromTestDatabase } from './my-db-utils';
+
+export * from '@playwright/test';
+export const test = baseTest.extend<{}, { dbUserName: string }>({
+  // Returns db user name unique for the worker.
+  dbUserName: [async ({ }, use) => {
+    // Use workerIndex as a unique identifier for each worker.
+    const userName = `user-${test.info().workerIndex}`;
+    // Inialize user in the database.
+    await createUserInTestDatabase(userName);
+    await use(userName);
+    // Clean up after the tests are done.
+    await deleteUserFromTestDatabase(userName);
+  }, { scope: 'worker' }],
+});
+```
+
+Now, each test file should import `test` from our fixtures file instead of `@playwright/test`.
+
+```js title="tests/example.spec.ts"
+// Important: import our fixtures.
+import { test, expect } from '../playwright/fixtures';
+
+test('test', async ({ dbUserName }) => {
+  // Use the user name in the test.
+});
+```
+
+
 ## Control test order
 
 Playwright Test runs tests from a single file in the order of declaration, unless you [parallelize tests in a single file](#parallelize-tests-in-a-single-file).
@@ -175,10 +216,13 @@ When you **disable parallel test execution**, Playwright Test runs test files in
 
 ### Use a "test list" file
 
+:::warning
+Tests lists are discouraged and supported as a best-effort only. Some features such as VS Code Extension and tracing may not work properly with test lists.
+:::
+
 You can put your tests in helper functions in multiple files. Consider the following example where tests are not defined directly in the file, but rather in a wrapper function.
 
-```js
-// feature-a.spec.ts
+```js title="feature-a.spec.ts"
 import { test, expect } from '@playwright/test';
 
 export default function createTests() {
@@ -187,7 +231,9 @@ export default function createTests() {
   });
 }
 
-// feature-b.spec.ts
+```
+
+```js title="feature-b.spec.ts"
 import { test, expect } from '@playwright/test';
 
 export default function createTests() {
@@ -202,8 +248,7 @@ export default function createTests() {
 You can create a test list file that will control the order of tests - first run `feature-b` tests, then `feature-a` tests. Note how each test file is wrapped in a `test.describe()` block that calls the function where tests are defined. This way `test.use()` calls only affect tests from a single file.
 
 
-```js
-// test.list.ts
+```js title="test.list.ts"
 import { test } from '@playwright/test';
 import featureBTests from './feature-b.spec.ts';
 import featureATests from './feature-a.spec.ts';
@@ -214,8 +259,7 @@ test.describe(featureATests);
 
 Now **disable parallel execution** by setting workers to one, and specify your test list file.
 
-```js
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({

@@ -349,7 +349,7 @@ test('should throw when calling runTest twice', async ({ runInlineTest }) => {
       test('works', async ({foo}) => {});
     `,
   });
-  expect(result.results[0].error.message).toBe('Cannot provide fixture value for the second time');
+  expect(result.results[0].error.message).toBe('Error: Cannot provide fixture value for the second time');
   expect(result.exitCode).toBe(1);
 });
 
@@ -415,19 +415,19 @@ test('should give enough time for fixture teardown', async ({ runInlineTest }) =
         fixture: async ({ }, use) => {
           await use();
           console.log('\\n%%teardown start');
-          await new Promise(f => setTimeout(f, 800));
+          await new Promise(f => setTimeout(f, 2000));
           console.log('\\n%%teardown finished');
         },
       });
       test('fast enough but close', async ({ fixture }) => {
-        test.setTimeout(1000);
-        await new Promise(f => setTimeout(f, 800));
+        test.setTimeout(3000);
+        await new Promise(f => setTimeout(f, 2000));
       });
     `,
   });
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Test finished within timeout of 1000ms, but tearing down "fixture" ran out of time.');
+  expect(result.output).toContain('Test finished within timeout of 3000ms, but tearing down "fixture" ran out of time.');
   expect(result.outputLines).toEqual([
     'teardown start',
     'teardown finished',
@@ -646,4 +646,33 @@ test('should provide helpful error message when digests do not match', async ({ 
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   expect(result.output).toContain('Playwright detected inconsistent test.use() options.');
+});
+
+test('tear down base fixture after error in derived', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+        context: async ({}, use, testInfo) => {
+          console.log('\\n%%context setup ' + testInfo.status);
+          await use();
+          console.log('\\n%%context teardown ' + testInfo.status);
+        },
+        page: async ({ context }, use, testInfo) => {
+          console.log('\\n%%page setup ' + testInfo.status);
+          await use();
+          console.log('\\n%%page teardown ' + testInfo.status);
+          throw new Error('Error in page teardown');
+        },
+      });
+      test('test', async ({ page }) => {});
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.outputLines).toEqual([
+    'context setup passed',
+    'page setup passed',
+    'page teardown passed',
+    'context teardown failed',
+  ]);
 });

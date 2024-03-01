@@ -14,18 +14,20 @@
  * limitations under the License.
  */
 
-const { test: baseTest, expect, devices, defineConfig: originalDefineConfig } = require('@playwright/test');
-const { fixtures } = require('@playwright/test/lib/mount');
+const { test, expect, devices, defineConfig: originalDefineConfig } = require('@playwright/experimental-ct-core');
 const path = require('path');
 
-const plugin = () => {
-  // Only fetch upon request to avoid resolution in workers.
-  const { createPlugin } = require('@playwright/test/lib/plugins/vitePlugin');
-  return createPlugin(
-    path.join(__dirname, 'registerSource.mjs'),
-    () => import('@sveltejs/vite-plugin-svelte').then(plugin => plugin.svelte()));
+const defineConfig = (config, ...configs) => {
+  return originalDefineConfig({
+    ...config,
+    '@playwright/test': {
+      packageJSON: require.resolve('./package.json'),
+    },
+    '@playwright/experimental-ct-core': {
+      registerSourceFile: path.join(__dirname, 'registerSource.mjs'),
+      frameworkPluginFactory: () => import('@sveltejs/vite-plugin-svelte').then(plugin => plugin.svelte()),
+    },
+  }, ...configs);
 };
-const defineConfig = config => originalDefineConfig({ ...config, _plugins: [plugin] });
-const test = baseTest.extend(fixtures);
 
 module.exports = { test, expect, devices, defineConfig };

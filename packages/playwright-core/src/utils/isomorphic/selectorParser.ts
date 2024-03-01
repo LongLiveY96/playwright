@@ -19,7 +19,7 @@ import { InvalidSelectorError, parseCSS } from './cssParser';
 export { InvalidSelectorError, isInvalidSelectorError } from './cssParser';
 
 export type NestedSelectorBody = { parsed: ParsedSelector, distance?: number };
-const kNestedSelectorNames = new Set(['internal:has', 'internal:or', 'left-of', 'right-of', 'above', 'below', 'near']);
+const kNestedSelectorNames = new Set(['internal:has', 'internal:has-not', 'internal:and', 'internal:or', 'internal:chain', 'left-of', 'right-of', 'above', 'below', 'near']);
 const kNestedSelectorNamesWithDistance = new Set(['left-of', 'right-of', 'above', 'below', 'near']);
 
 export type ParsedSelectorPart = {
@@ -41,17 +41,19 @@ type ParsedSelectorStrings = {
 export const customCSSNames = new Set(['not', 'is', 'where', 'has', 'scope', 'light', 'visible', 'text', 'text-matches', 'text-is', 'has-text', 'above', 'below', 'right-of', 'left-of', 'near', 'nth-match']);
 
 export function parseSelector(selector: string): ParsedSelector {
-  const result = parseSelectorString(selector);
-  const parts: ParsedSelectorPart[] = result.parts.map(part => {
+  const parsedStrings = parseSelectorString(selector);
+  const parts: ParsedSelectorPart[] = [];
+  for (const part of parsedStrings.parts) {
     if (part.name === 'css' || part.name === 'css:light') {
       if (part.name === 'css:light')
         part.body = ':light(' + part.body + ')';
       const parsedCSS = parseCSS(part.body, customCSSNames);
-      return {
+      parts.push({
         name: 'css',
         body: parsedCSS.selector,
         source: part.body
-      };
+      });
+      continue;
     }
     if (kNestedSelectorNames.has(part.name)) {
       let innerSelector: string;
@@ -69,17 +71,21 @@ export function parseSelector(selector: string): ParsedSelector {
       } catch (e) {
         throw new InvalidSelectorError(`Malformed selector: ${part.name}=` + part.body);
       }
-      const result = { name: part.name, source: part.body, body: { parsed: parseSelector(innerSelector), distance } };
-      if (result.body.parsed.parts.some(part => part.name === 'internal:control' && part.body === 'enter-frame'))
-        throw new InvalidSelectorError(`Frames are not allowed inside "${part.name}" selectors`);
-      return result;
+      const nested = { name: part.name, source: part.body, body: { parsed: parseSelector(innerSelector), distance } };
+      const lastFrame = [...nested.body.parsed.parts].reverse().find(part => part.name === 'internal:control' && part.body === 'enter-frame');
+      const lastFrameIndex = lastFrame ? nested.body.parsed.parts.indexOf(lastFrame) : -1;
+      // Allow nested selectors to start with the same frame selector.
+      if (lastFrameIndex !== -1 && selectorPartsEqual(nested.body.parsed.parts.slice(0, lastFrameIndex + 1), parts.slice(0, lastFrameIndex + 1)))
+        nested.body.parsed.parts.splice(0, lastFrameIndex + 1);
+      parts.push(nested);
+      continue;
     }
-    return { ...part, source: part.body };
-  });
+    parts.push({ ...part, source: part.body });
+  }
   if (kNestedSelectorNames.has(parts[0].name))
     throw new InvalidSelectorError(`"${parts[0].name}" selector cannot be first`);
   return {
-    capture: result.capture,
+    capture: parsedStrings.capture,
     parts
   };
 }
@@ -113,26 +119,35 @@ export function splitSelectorByFrame(selectorText: string): ParsedSelector[] {
   return result;
 }
 
-export function stringifySelector(selector: string | ParsedSelector): string {
+function selectorPartsEqual(list1: ParsedSelectorPart[], list2: ParsedSelectorPart[]) {
+  return stringifySelector({ parts: list1 }) === stringifySelector({ parts: list2 });
+}
+
+export function stringifySelector(selector: string | ParsedSelector, forceEngineName?: boolean): string {
   if (typeof selector === 'string')
     return selector;
   return selector.parts.map((p, i) => {
-    const prefix = p.name === 'css' ? '' : p.name + '=';
+    let includeEngine = true;
+    if (!forceEngineName && i !== selector.capture) {
+      if (p.name === 'css')
+        includeEngine = false;
+      else if (p.name === 'xpath' && p.source.startsWith('//') || p.source.startsWith('..'))
+        includeEngine = false;
+    }
+    const prefix = includeEngine ? p.name + '=' : '';
     return `${i === selector.capture ? '*' : ''}${prefix}${p.source}`;
   }).join(' >> ');
 }
 
-export function allEngineNames(selector: ParsedSelector): Set<string> {
-  const result = new Set<string>();
-  const visit = (selector: ParsedSelector) => {
+export function visitAllSelectorParts(selector: ParsedSelector, visitor: (part: ParsedSelectorPart, nested: boolean) => void) {
+  const visit = (selector: ParsedSelector, nested: boolean) => {
     for (const part of selector.parts) {
-      result.add(part.name);
+      visitor(part, nested);
       if (kNestedSelectorNames.has(part.name))
-        visit((part.body as NestedSelectorBody).parsed);
+        visit((part.body as NestedSelectorBody).parsed, true);
     }
   };
-  visit(selector);
-  return result;
+  visit(selector, false);
 }
 
 function parseSelectorString(selector: string): ParsedSelectorStrings {
@@ -294,7 +309,7 @@ export function parseAttributeSelector(selector: string, allowUnquotedStrings: b
       if (next() === '\\') {
         source += eat1();
         if (EOL)
-          syntaxError('parsing regular expressiion');
+          syntaxError('parsing regular expression');
       } else if (inClass && next() === ']') {
         inClass = false;
       } else if (!inClass && next() === '[') {

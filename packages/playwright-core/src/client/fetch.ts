@@ -21,15 +21,14 @@ import type { Serializable } from '../../types/structs';
 import type * as api from '../../types/types';
 import type { HeadersArray, NameValue } from '../common/types';
 import type * as channels from '@protocol/channels';
-import { kBrowserOrContextClosedError } from '../common/errors';
 import { assert, headersObjectToArray, isString } from '../utils';
 import { mkdirIfNeeded } from '../utils/fileUtils';
 import { ChannelOwner } from './channelOwner';
 import { RawHeaders } from './network';
 import type { FilePayload, Headers, StorageState } from './types';
 import type { Playwright } from './playwright';
-import { createInstrumentation } from './clientInstrumentation';
 import { Tracing } from './tracing';
+import { isTargetClosedError } from './errors';
 
 export type FetchOptions = {
   params?: { [key: string]: string; },
@@ -57,8 +56,6 @@ export class APIRequest implements api.APIRequest {
 
   // Instrumentation.
   _defaultContextOptions?: NewContextOptions & { tracesDir?: string };
-  _onDidCreateContext?: (context: APIRequestContext) => Promise<void>;
-  _onWillCloseContext?: (context: APIRequestContext) => Promise<void>;
 
   constructor(playwright: Playwright) {
     this._playwright = playwright;
@@ -80,7 +77,7 @@ export class APIRequest implements api.APIRequest {
     this._contexts.add(context);
     context._request = this;
     context._tracing._tracesDir = tracesDir;
-    await this._onDidCreateContext?.(context);
+    await context._instrumentation.onDidCreateRequestContext(context);
     return context;
   }
 }
@@ -94,53 +91,57 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
   }
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.APIRequestContextInitializer) {
-    super(parent, type, guid, initializer, createInstrumentation());
+    super(parent, type, guid, initializer);
     this._tracing = Tracing.from(initializer.tracing);
   }
 
+  async [Symbol.asyncDispose]() {
+    await this.dispose();
+  }
+
   async dispose(): Promise<void> {
-    await this._request?._onWillCloseContext?.(this);
+    await this._instrumentation.onWillCloseRequestContext(this);
     await this._channel.dispose();
     this._request?._contexts.delete(this);
   }
 
   async delete(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'DELETE',
     });
   }
 
   async head(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'HEAD',
     });
   }
 
   async get(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'GET',
     });
   }
 
   async patch(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'PATCH',
     });
   }
 
   async post(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'POST',
     });
   }
 
   async put(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'PUT',
     });
@@ -149,11 +150,11 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
   async fetch(urlOrRequest: string | api.Request, options: FetchOptions = {}): Promise<APIResponse> {
     const url = isString(urlOrRequest) ? urlOrRequest : undefined;
     const request = isString(urlOrRequest) ? undefined : urlOrRequest;
-    return this._innerFetch({ url, request, ...options });
+    return await this._innerFetch({ url, request, ...options });
   }
 
   async _innerFetch(options: FetchOptions & { url?: string, request?: api.Request } = {}): Promise<APIResponse> {
-    return this._wrapApiCall(async () => {
+    return await this._wrapApiCall(async () => {
       assert(options.request || typeof options.url === 'string', 'First argument must be either URL string or Request');
       assert((options.data === undefined ? 0 : 1) + (options.form === undefined ? 0 : 1) + (options.multipart === undefined ? 0 : 1) <= 1, `Only one of 'data', 'form' or 'multipart' can be specified`);
       assert(options.maxRedirects === undefined || options.maxRedirects >= 0, `'maxRedirects' should be greater than or equal to '0'`);
@@ -171,13 +172,13 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
       if (options.data !== undefined) {
         if (isString(options.data)) {
           if (isJsonContentType(headers))
-            jsonData = options.data;
+            jsonData = isJsonParsable(options.data) ? options.data : JSON.stringify(options.data);
           else
             postDataBuffer = Buffer.from(options.data, 'utf8');
         } else if (Buffer.isBuffer(options.data)) {
           postDataBuffer = options.data;
         } else if (typeof options.data === 'object' || typeof options.data === 'number' || typeof options.data === 'boolean') {
-          jsonData = options.data;
+          jsonData = JSON.stringify(options.data);
         } else {
           throw new Error(`Unexpected 'data' type`);
         }
@@ -233,6 +234,20 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
   }
 }
 
+function isJsonParsable(value: any) {
+  if (typeof value !== 'string')
+    return false;
+  try {
+    JSON.parse(value);
+    return true;
+  } catch (e) {
+    if (e instanceof SyntaxError)
+      return false;
+    else
+      throw e;
+  }
+}
+
 export class APIResponse implements api.APIResponse {
   private readonly _initializer: channels.APIResponse;
   private readonly _headers: RawHeaders;
@@ -275,7 +290,7 @@ export class APIResponse implements api.APIResponse {
         throw new Error('Response has been disposed');
       return result.binary;
     } catch (e) {
-      if (e.message.includes(kBrowserOrContextClosedError))
+      if (isTargetClosedError(e))
         throw new Error('Response has been disposed');
       throw e;
     }
@@ -289,6 +304,10 @@ export class APIResponse implements api.APIResponse {
   async json(): Promise<object> {
     const content = await this.text();
     return JSON.parse(content);
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.dispose();
   }
 
   async dispose(): Promise<void> {

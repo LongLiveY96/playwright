@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import { test, expect, dumpTestTree } from './ui-mode-fixtures';
+import { test, expect, retries, dumpTestTree } from './ui-mode-fixtures';
 
-test.describe.configure({ mode: 'parallel' });
+test.describe.configure({ mode: 'parallel', retries });
 
 const basicTestTree = {
   'a.test.ts': `
@@ -36,8 +36,8 @@ const basicTestTree = {
 };
 
 test('should pick new / deleted files', async ({ runUITest, writeFiles, deleteFile }) => {
-  const page = await runUITest(basicTestTree);
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  const { page } = await runUITest(basicTestTree);
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
         ◯ passes
         ◯ fails
@@ -55,7 +55,7 @@ test('should pick new / deleted files', async ({ runUITest, writeFiles, deleteFi
     `
   });
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
         ◯ passes
         ◯ fails
@@ -70,7 +70,7 @@ test('should pick new / deleted files', async ({ runUITest, writeFiles, deleteFi
 
   await deleteFile('a.test.ts');
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ b.test.ts
         ◯ passes
         ◯ fails
@@ -81,8 +81,8 @@ test('should pick new / deleted files', async ({ runUITest, writeFiles, deleteFi
 });
 
 test('should pick new / deleted tests', async ({ runUITest, writeFiles, deleteFile }) => {
-  const page = await runUITest(basicTestTree);
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  const { page } = await runUITest(basicTestTree);
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
         ◯ passes
         ◯ fails
@@ -101,7 +101,7 @@ test('should pick new / deleted tests', async ({ runUITest, writeFiles, deleteFi
     `
   });
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
         ◯ passes
         ◯ new
@@ -120,7 +120,7 @@ test('should pick new / deleted tests', async ({ runUITest, writeFiles, deleteFi
     `
   });
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
         ◯ new
     ▼ ◯ b.test.ts
@@ -130,8 +130,8 @@ test('should pick new / deleted tests', async ({ runUITest, writeFiles, deleteFi
 });
 
 test('should pick new / deleted nested tests', async ({ runUITest, writeFiles, deleteFile }) => {
-  const page = await runUITest(basicTestTree);
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toContain(`
+  const { page } = await runUITest(basicTestTree);
+  await expect.poll(dumpTestTree(page)).toContain(`
     ▼ ◯ a.test.ts
         ◯ passes
         ◯ fails
@@ -140,7 +140,7 @@ test('should pick new / deleted nested tests', async ({ runUITest, writeFiles, d
 
   await page.getByText('suite').click();
   await page.keyboard.press('ArrowRight');
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toContain(`
+  await expect.poll(dumpTestTree(page)).toContain(`
     ▼ ◯ a.test.ts
         ◯ passes
         ◯ fails
@@ -160,7 +160,7 @@ test('should pick new / deleted nested tests', async ({ runUITest, writeFiles, d
     `
   });
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toContain(`
+  await expect.poll(dumpTestTree(page)).toContain(`
     ▼ ◯ a.test.ts
         ◯ passes
       ▼ ◯ suite <=
@@ -170,14 +170,14 @@ test('should pick new / deleted nested tests', async ({ runUITest, writeFiles, d
 });
 
 test('should update test locations', async ({ runUITest, writeFiles, deleteFile }) => {
-  const page = await runUITest({
+  const { page } = await runUITest({
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
       test('passes', () => {});
     `,
   });
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toContain(`
+  await expect.poll(dumpTestTree(page)).toContain(`
     ▼ ◯ a.test.ts
         ◯ passes
   `);
@@ -205,7 +205,7 @@ test('should update test locations', async ({ runUITest, writeFiles, deleteFile 
     `
   });
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toContain(`
+  await expect.poll(dumpTestTree(page)).toContain(`
     ▼ ◯ a.test.ts
         ◯ new-test
         ◯ passes <=

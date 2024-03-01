@@ -94,6 +94,105 @@ Emitted when Browser context gets closed. This might happen because of one of th
 * Browser application is closed or crashed.
 * The [`method: Browser.close`] method was called.
 
+### option: BrowserContext.close.reason
+* since: v1.40
+- `reason` <[string]>
+
+The reason to be reported to the operations interrupted by the context closure.
+
+## event: BrowserContext.console
+* since: v1.34
+* langs:
+  - alias-java: consoleMessage
+- argument: <[ConsoleMessage]>
+
+Emitted when JavaScript within the page calls one of console API methods, e.g. `console.log` or `console.dir`.
+
+The arguments passed into `console.log` and the page are available on the [ConsoleMessage] event handler argument.
+
+**Usage**
+
+```js
+context.on('console', async msg => {
+  const values = [];
+  for (const arg of msg.args())
+    values.push(await arg.jsonValue());
+  console.log(...values);
+});
+await page.evaluate(() => console.log('hello', 5, { foo: 'bar' }));
+```
+
+```java
+context.onConsoleMessage(msg -> {
+  for (int i = 0; i < msg.args().size(); ++i)
+    System.out.println(i + ": " + msg.args().get(i).jsonValue());
+});
+page.evaluate("() => console.log('hello', 5, { foo: 'bar' })");
+```
+
+```python async
+async def print_args(msg):
+    values = []
+    for arg in msg.args:
+        values.append(await arg.json_value())
+    print(values)
+
+context.on("console", print_args)
+await page.evaluate("console.log('hello', 5, { foo: 'bar' })")
+```
+
+```python sync
+def print_args(msg):
+    for arg in msg.args:
+        print(arg.json_value())
+
+context.on("console", print_args)
+page.evaluate("console.log('hello', 5, { foo: 'bar' })")
+```
+
+```csharp
+context.Console += async (_, msg) =>
+{
+    foreach (var arg in msg.Args)
+        Console.WriteLine(await arg.JsonValueAsync<object>());
+};
+
+await page.EvaluateAsync("console.log('hello', 5, { foo: 'bar' })");
+```
+
+
+## event: BrowserContext.dialog
+* since: v1.34
+- argument: <[Dialog]>
+
+Emitted when a JavaScript dialog appears, such as `alert`, `prompt`, `confirm` or `beforeunload`. Listener **must** either [`method: Dialog.accept`] or [`method: Dialog.dismiss`] the dialog - otherwise the page will [freeze](https://developer.mozilla.org/en-US/docs/Web/JavaScript/EventLoop#never_blocking) waiting for the dialog, and actions like click will never finish.
+
+**Usage**
+
+```js
+context.on('dialog', dialog => {
+  dialog.accept();
+});
+```
+
+```java
+context.onDialog(dialog -> {
+  dialog.accept();
+});
+```
+
+```python
+context.on("dialog", lambda dialog: dialog.accept())
+```
+
+```csharp
+context.Dialog += (_, dialog) => dialog.AcceptAsync();
+```
+
+:::note
+When no [`event: Page.dialog`] or [`event: BrowserContext.dialog`] listeners are present, all dialogs are automatically dismissed.
+:::
+
 ## event: BrowserContext.page
 * since: v1.8
 - argument: <[Page]>
@@ -145,6 +244,13 @@ Console.WriteLine(await popup.EvaluateAsync<string>("location.href"));
 Use [`method: Page.waitForLoadState`] to wait until the page gets to a particular state (you should not need it in most
 cases).
 :::
+
+## event: BrowserContext.webError
+* since: v1.38
+- argument: <[WebError]>
+
+Emitted when exception is unhandled in any of the pages in this
+context. To listen for errors from a particular page, use [`event: Page.pageError`] instead.
 
 ## event: BrowserContext.request
 * since: v1.12
@@ -236,6 +342,10 @@ await context.AddCookiesAsync(new[] { cookie1, cookie2 });
   - `httpOnly` ?<[boolean]> Optional.
   - `secure` ?<[boolean]> Optional.
   - `sameSite` ?<[SameSiteAttribute]<"Strict"|"Lax"|"None">> Optional.
+
+Adds cookies to the browser context.
+
+For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com".
 
 ## async method: BrowserContext.addInitScript
 * since: v1.8
@@ -485,11 +595,11 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
-    browser = await webkit.launch(headless=false)
+    browser = await webkit.launch(headless=False)
     context = await browser.new_context()
     await context.expose_binding("pageURL", lambda source: source["page"].url)
     page = await context.new_page()
@@ -511,11 +621,11 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
-    browser = webkit.launch(headless=false)
+    browser = webkit.launch(headless=False)
     context = browser.new_context()
     context.expose_binding("pageURL", lambda source: source["page"].url)
     page = context.new_page()
@@ -671,7 +781,9 @@ const crypto = require('crypto');
 (async () => {
   const browser = await webkit.launch({ headless: false });
   const context = await browser.newContext();
-  await context.exposeFunction('sha256', text => crypto.createHash('sha256').update(text).digest('hex'));
+  await context.exposeFunction('sha256', text =>
+    crypto.createHash('sha256').update(text).digest('hex'),
+  );
   const page = await context.newPage();
   await page.setContent(`
     <script>
@@ -727,15 +839,15 @@ public class Example {
 ```python async
 import asyncio
 import hashlib
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-def sha256(text):
+def sha256(text: str) -> str:
     m = hashlib.sha256()
     m.update(bytes(text, "utf8"))
     return m.hexdigest()
 
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = await webkit.launch(headless=False)
     context = await browser.new_context()
@@ -762,13 +874,13 @@ asyncio.run(main())
 import hashlib
 from playwright.sync_api import sync_playwright
 
-def sha256(text):
+def sha256(text: str) -> str:
     m = hashlib.sha256()
     m.update(bytes(text, "utf8"))
     return m.hexdigest()
 
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = webkit.launch(headless=False)
     context = browser.new_context()
@@ -871,7 +983,6 @@ The [origin] to grant permissions to, e.g. "https://example.com".
 
 ## async method: BrowserContext.newCDPSession
 * since: v1.11
-* langs: js, python, csharp
 - returns: <[CDPSession]>
 
 :::note
@@ -1009,11 +1120,11 @@ await browser.CloseAsync();
 It is possible to examine the request to decide the route action. For example, mocking all requests that contain some post data, and leaving all other requests as is:
 
 ```js
-await context.route('/api/**', route => {
+await context.route('/api/**', async route => {
   if (route.request().postData().includes('my-string'))
-    route.fulfill({ body: 'mocked-data' });
+    await route.fulfill({ body: 'mocked-data' });
   else
-    route.continue();
+    await route.continue();
 });
 ```
 
@@ -1027,19 +1138,19 @@ context.route("/api/**", route -> {
 ```
 
 ```python async
-def handle_route(route):
-  if ("my-string" in route.request.post_data)
-    route.fulfill(body="mocked-data")
-  else
-    route.continue_()
+async def handle_route(route: Route):
+  if ("my-string" in route.request.post_data):
+    await route.fulfill(body="mocked-data")
+  else:
+    await route.continue_()
 await context.route("/api/**", handle_route)
 ```
 
 ```python sync
-def handle_route(route):
-  if ("my-string" in route.request.post_data)
+def handle_route(route: Route):
+  if ("my-string" in route.request.post_data):
     route.fulfill(body="mocked-data")
-  else
+  else:
     route.continue_()
 context.route("/api/**", handle_route)
 ```
@@ -1094,7 +1205,7 @@ How often a route should be used. By default it will be used every time.
 ## async method: BrowserContext.routeFromHAR
 * since: v1.23
 
-If specified the network requests that are made in the context will be served from the HAR file. Read more about [Replaying from HAR](../network.md#replaying-from-har).
+If specified the network requests that are made in the context will be served from the HAR file. Read more about [Replaying from HAR](../mock.md#replaying-from-har).
 
 Playwright will not serve requests intercepted by Service Worker from the HAR file. See [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using request interception by setting [`option: Browser.newContext.serviceWorkers`] to `'block'`.
 
@@ -1210,7 +1321,7 @@ Sets the context's geolocation. Passing `null` or `undefined` emulates position 
 **Usage**
 
 ```js
-await browserContext.setGeolocation({latitude: 59.95, longitude: 30.31667});
+await browserContext.setGeolocation({ latitude: 59.95, longitude: 30.31667 });
 ```
 
 ```java
@@ -1297,6 +1408,14 @@ Returns storage state for this browser context, contains current cookies and loc
 * since: v1.12
 - type: <[Tracing]>
 
+## async method: BrowserContext.unrouteAll
+* since: v1.41
+
+Removes all routes created with [`method: BrowserContext.route`] and [`method: BrowserContext.routeFromHAR`].
+
+### option: BrowserContext.unrouteAll.behavior = %%-unroute-all-options-behavior-%%
+* since: v1.41
+
 ## async method: BrowserContext.unroute
 * since: v1.8
 
@@ -1355,6 +1474,37 @@ Condition to wait for.
 
 ### option: BrowserContext.waitForCondition.timeout = %%-wait-for-function-timeout-%%
 * since: v1.32
+
+## async method: BrowserContext.waitForConsoleMessage
+* since: v1.34
+* langs: java, python, csharp
+  - alias-python: expect_console_message
+  - alias-csharp: RunAndWaitForConsoleMessage
+- returns: <[ConsoleMessage]>
+
+Performs action and waits for a [ConsoleMessage] to be logged by in the pages in the context. If predicate is provided, it passes
+[ConsoleMessage] value into the `predicate` function and waits for `predicate(message)` to return a truthy value.
+Will throw an error if the page is closed before the [`event: BrowserContext.console`] event is fired.
+
+## async method: BrowserContext.waitForConsoleMessage
+* since: v1.34
+* langs: python
+- returns: <[EventContextManager]<[ConsoleMessage]>>
+
+### param: BrowserContext.waitForConsoleMessage.action = %%-csharp-wait-for-event-action-%%
+* since: v1.34
+
+### option: BrowserContext.waitForConsoleMessage.predicate
+* since: v1.34
+- `predicate` <[function]\([ConsoleMessage]\):[boolean]>
+
+Receives the [ConsoleMessage] object and resolves to truthy value when the waiting should resolve.
+
+### option: BrowserContext.waitForConsoleMessage.timeout = %%-wait-for-event-timeout-%%
+* since: v1.34
+
+### param: BrowserContext.waitForConsoleMessage.callback = %%-java-wait-for-event-callback-%%
+* since: v1.34
 
 ## async method: BrowserContext.waitForEvent
 * since: v1.8

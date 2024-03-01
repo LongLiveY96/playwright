@@ -32,20 +32,20 @@ export default defineConfig({
       '@injected': path.resolve(__dirname, '../playwright-core/src/server/injected'),
       '@isomorphic': path.resolve(__dirname, '../playwright-core/src/utils/isomorphic'),
       '@protocol': path.resolve(__dirname, '../protocol/src'),
-      '@testIsomorphic': path.resolve(__dirname, '../playwright-test/src/isomorphic'),
+      '@testIsomorphic': path.resolve(__dirname, '../playwright/src/isomorphic'),
       '@trace': path.resolve(__dirname, '../trace/src'),
       '@web': path.resolve(__dirname, '../web/src'),
     },
   },
   build: {
-    outDir: path.resolve(__dirname, '../playwright-core/lib/webpack/traceViewer'),
+    outDir: path.resolve(__dirname, '../playwright-core/lib/vite/traceViewer'),
     // Output dir is shared with vite.sw.config.ts, clearing it here is racy.
     emptyOutDir: false,
     rollupOptions: {
       input: {
         index: path.resolve(__dirname, 'index.html'),
-        watch: path.resolve(__dirname, 'watch.html'),
-        popout: path.resolve(__dirname, 'popout.html'),
+        uiMode: path.resolve(__dirname, 'uiMode.html'),
+        snapshot: path.resolve(__dirname, 'snapshot.html'),
       },
       output: {
         entryFileNames: () => '[name].[hash].js',

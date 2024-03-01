@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import { test, expect, dumpTestTree } from './ui-mode-fixtures';
+import { test, expect, retries, dumpTestTree } from './ui-mode-fixtures';
 
-test.describe.configure({ mode: 'parallel' });
+test.describe.configure({ mode: 'parallel', retries });
 
 const basicTestTree = {
   'a.test.ts': `
@@ -36,9 +36,9 @@ const basicTestTree = {
 };
 
 test('should filter by title', async ({ runUITest }) => {
-  const page = await runUITest(basicTestTree);
+  const { page } = await runUITest(basicTestTree);
   await page.getByPlaceholder('Filter').fill('inner');
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
       ▼ ◯ suite
           ◯ inner passes
@@ -47,11 +47,11 @@ test('should filter by title', async ({ runUITest }) => {
 });
 
 test('should filter by status', async ({ runUITest }) => {
-  const page = await runUITest(basicTestTree);
+  const { page } = await runUITest(basicTestTree);
 
   await page.getByTitle('Run all').click();
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ❌ a.test.ts
         ✅ passes
         ❌ fails <=
@@ -67,7 +67,7 @@ test('should filter by status', async ({ runUITest }) => {
   await page.getByLabel('failed').setChecked(true);
   await expect(page.getByText('Status: failed')).toBeVisible();
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ❌ a.test.ts
         ❌ fails <=
       ► ❌ suite
@@ -91,7 +91,7 @@ test('should filter by status', async ({ runUITest }) => {
 });
 
 test('should filter by project', async ({ runUITest }) => {
-  const page = await runUITest({
+  const { page } = await runUITest({
     ...basicTestTree,
     'playwright.config.ts': `
       import { defineConfig } from '@playwright/test';
@@ -104,7 +104,7 @@ test('should filter by project', async ({ runUITest }) => {
     `
   });
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
         ◯ passes
         ◯ fails
@@ -121,7 +121,7 @@ test('should filter by project', async ({ runUITest }) => {
   await expect(page.getByLabel('bar')).not.toBeChecked();
   await page.getByLabel('bar').setChecked(true);
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
       ► ◯ passes
       ► ◯ fails
@@ -134,7 +134,7 @@ test('should filter by project', async ({ runUITest }) => {
   await page.getByText('passes').first().click();
   await page.keyboard.press('ArrowRight');
 
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ◯ a.test.ts
       ▼ ◯ passes <=
           ◯ foo
@@ -151,7 +151,7 @@ test('should filter by project', async ({ runUITest }) => {
 
 test('should not hide filtered while running', async ({ runUITest, createLatch }) => {
   const latch = createLatch();
-  const page = await runUITest({
+  const { page } = await runUITest({
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
       test('passes', () => {});
@@ -163,7 +163,7 @@ test('should not hide filtered while running', async ({ runUITest, createLatch }
   });
   await page.getByTitle('Run all').click();
   latch.open();
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ❌ a.test.ts
         ✅ passes
         ❌ fails <=
@@ -173,8 +173,33 @@ test('should not hide filtered while running', async ({ runUITest, createLatch }
   await page.getByText('Status:').click();
   await page.getByLabel('failed').setChecked(true);
   await page.getByTitle('Run all').click();
-  await expect.poll(dumpTestTree(page), { timeout: 15000 }).toBe(`
+  await expect.poll(dumpTestTree(page)).toBe(`
     ▼ ↻ a.test.ts
         ↻ fails <=
+  `);
+});
+
+test('should filter skipped', async ({ runUITest, createLatch }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('passes', () => {});
+      test.skip('fails', async () => {
+        expect(1).toBe(2);
+      });
+    `,
+  });
+  await page.getByTitle('Run all').click();
+  await expect.poll(dumpTestTree(page)).toBe(`
+    ▼ ✅ a.test.ts
+        ✅ passes
+        ⊘ fails
+  `);
+
+  await page.getByText('Status:').click();
+  await page.getByLabel('skipped').setChecked(true);
+  await expect.poll(dumpTestTree(page)).toBe(`
+    ▼ ⊘ a.test.ts
+        ⊘ fails
   `);
 });

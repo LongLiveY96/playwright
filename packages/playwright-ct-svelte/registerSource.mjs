@@ -20,19 +20,17 @@
 
 import { detach as __pwDetach, insert as __pwInsert, noop as __pwNoop } from 'svelte/internal';
 
-/** @typedef {import('../playwright-test/types/component').Component} Component */
+/** @typedef {import('../playwright-ct-core/types/component').Component} Component */
+/** @typedef {import('../playwright-ct-core/types/component').ObjectComponent} ObjectComponent */
 /** @typedef {any} FrameworkComponent */
 /** @typedef {import('svelte').SvelteComponent} SvelteComponent */
 
-/** @type {Map<string, FrameworkComponent>} */
-const __pwRegistry = new Map();
-
 /**
- * @param {{[key: string]: FrameworkComponent}} components
+ * @param {any} component
+ * @returns {component is ObjectComponent}
  */
-export function pwRegister(components) {
-  for (const [name, value] of Object.entries(components))
-    __pwRegistry.set(name, value);
+function isObjectComponent(component) {
+  return typeof component === 'object' && component && component.__pw_type === 'object-component';
 }
 
 /**
@@ -57,7 +55,8 @@ function __pwCreateSlots(slots) {
           __pwInsert(target, element, anchor);
         },
         d: function destroy(detaching) {
-          if (detaching) __pwDetach(element);
+          if (detaching)
+            __pwDetach(element);
         },
         l: __pwNoop,
       };
@@ -69,38 +68,36 @@ function __pwCreateSlots(slots) {
 const __pwSvelteComponentKey = Symbol('svelteComponent');
 
 window.playwrightMount = async (component, rootElement, hooksConfig) => {
-  let componentCtor = __pwRegistry.get(component.type);
-  if (!componentCtor) {
-    // Lookup by shorthand.
-    for (const [name, value] of __pwRegistry) {
-      if (component.type.endsWith(`_${name}_svelte`)) {
-        componentCtor = value;
-        break;
-      }
+  if (!isObjectComponent(component))
+    throw new Error('JSX mount notation is not supported');
+
+  const objectComponent = component;
+  const componentCtor = component.type;
+
+  class App extends componentCtor {
+    constructor(options = {}) {
+      super({
+        target: rootElement,
+        props: {
+          ...objectComponent.props,
+          $$slots: __pwCreateSlots(objectComponent.slots),
+          $$scope: {},
+        },
+        ...options
+      });
     }
   }
 
-  if (!componentCtor)
-    throw new Error(`Unregistered component: ${component.type}. Following components are registered: ${[...__pwRegistry.keys()]}`);
-
-  if (component.kind !== 'object')
-    throw new Error('JSX mount notation is not supported');
-
-
+  let svelteComponent;
   for (const hook of window.__pw_hooks_before_mount || [])
-    await hook({ hooksConfig });
+    svelteComponent = await hook({ hooksConfig, App });
 
-  const svelteComponent = /** @type {SvelteComponent} */ (new componentCtor({
-    target: rootElement,
-    props: {
-      ...component.options?.props,
-      $$slots: __pwCreateSlots(component.options?.slots),
-      $$scope: {},
-    }
-  }));
+  if (!svelteComponent)
+    svelteComponent = new App();
+
   rootElement[__pwSvelteComponentKey] = svelteComponent;
 
-  for (const [key, listener] of Object.entries(component.options?.on || {}))
+  for (const [key, listener] of Object.entries(objectComponent.on || {}))
     svelteComponent.$on(key, event => listener(event.detail));
 
   for (const hook of window.__pw_hooks_after_mount || [])
@@ -112,16 +109,20 @@ window.playwrightUnmount = async rootElement => {
   if (!svelteComponent)
     throw new Error('Component was not mounted');
   svelteComponent.$destroy();
+  delete rootElement[__pwSvelteComponentKey];
 };
 
 window.playwrightUpdate = async (rootElement, component) => {
+  if (!isObjectComponent(component))
+    throw new Error('JSX mount notation is not supported');
+
   const svelteComponent = /** @type {SvelteComponent} */ (rootElement[__pwSvelteComponentKey]);
   if (!svelteComponent)
     throw new Error('Component was not mounted');
 
-  for (const [key, listener] of Object.entries(component.options?.on || {}))
+  for (const [key, listener] of Object.entries(component.on || {}))
     svelteComponent.$on(key, event => listener(event.detail));
 
-  if (component.options?.props)
-    svelteComponent.$set(component.options.props);
+  if (component.props)
+    svelteComponent.$set(component.props);
 };

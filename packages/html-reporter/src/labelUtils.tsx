@@ -14,18 +14,20 @@
  * limitations under the License.
  */
 
-export function escapeRegExp(string: string) {
-  const reRegExpChar = /[\\^$.*+?()[\]{}|]/g;
-  const reHasRegExpChar = RegExp(reRegExpChar.source);
+import type { TestCaseSummary } from './types';
 
-  return (string && reHasRegExpChar.test(string))
-    ? string.replace(reRegExpChar, '\\$&')
-    : (string || '');
-}
+const labelsSymbol = Symbol('labels');
 
-// match all tags in test title
-export function matchTags(title: string): string[] {
-  return title.match(/@(\w+)/g)?.map(tag => tag.slice(1)) || [];
+// Note: all labels start with "@"
+export function testCaseLabels(test: TestCaseSummary): string[] {
+  if (!(test as any)[labelsSymbol]) {
+    const labels: string[] = [];
+    if (test.botName)
+      labels.push('@' + test.botName);
+    labels.push(...test.tags);
+    (test as any)[labelsSymbol] = labels;
+  }
+  return (test as any)[labelsSymbol];
 }
 
 // hash string to integer in range [0, 6] for color index, to get same color for same tag

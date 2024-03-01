@@ -172,3 +172,45 @@ test('should ignore .only', async ({ runInlineTest }) => {
     `Total: 2 tests in 1 file`
   ].join('\n'));
 });
+
+test('should report errors with location', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `module.exports = { reporter: './reporter' };`,
+    'reporter.ts': `
+      class Reporter {
+        onError(error) {
+          console.log('%% ' + JSON.stringify(error.location));
+        }
+      }
+      module.exports = Reporter;
+    `,
+    'a.test.js': `
+      const oh = '';
+      oh = 2;
+    `
+  }, { 'list': true });
+  expect(result.exitCode).toBe(1);
+  expect(JSON.parse(result.outputLines[0])).toEqual({
+    file: expect.stringContaining('a.test.js'),
+    line: 3,
+    column: 9,
+  });
+});
+
+test('should list tests once', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27087' });
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = { };
+    `,
+    'a.test.js': `
+      const { test, expect } = require('@playwright/test');
+      test('test 1', ({}) => {});
+    `
+  }, { 'list': true });
+  expect(result.exitCode).toBe(0);
+  expect(result.output).toEqual(`Listing tests:
+  a.test.js:3:7 › test 1
+Total: 1 test in 1 file
+`);
+});

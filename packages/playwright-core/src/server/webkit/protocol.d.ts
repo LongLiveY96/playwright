@@ -536,7 +536,7 @@ export module Protocol {
     /**
      * Pseudo-style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>).
      */
-    export type PseudoId = "first-line"|"first-letter"|"highlight"|"marker"|"before"|"after"|"selection"|"backdrop"|"scrollbar"|"scrollbar-thumb"|"scrollbar-button"|"scrollbar-track"|"scrollbar-track-piece"|"scrollbar-corner"|"resizer";
+    export type PseudoId = "first-line"|"first-letter"|"grammar-error"|"highlight"|"marker"|"before"|"after"|"selection"|"backdrop"|"spelling-error"|"view-transition"|"view-transition-group"|"view-transition-image-pair"|"view-transition-old"|"view-transition-new"|"-webkit-scrollbar"|"-webkit-resizer"|"-webkit-scrollbar-thumb"|"-webkit-scrollbar-button"|"-webkit-scrollbar-track"|"-webkit-scrollbar-track-piece"|"-webkit-scrollbar-corner";
     /**
      * Pseudo-style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>).
      */
@@ -1237,7 +1237,7 @@ export module Protocol {
     /**
      * The type of rendering context backing the canvas element.
      */
-    export type ContextType = "canvas-2d"|"bitmaprenderer"|"webgl"|"webgl2";
+    export type ContextType = "canvas-2d"|"offscreen-canvas-2d"|"bitmaprenderer"|"offscreen-bitmaprenderer"|"webgl"|"offscreen-webgl"|"webgl2"|"offscreen-webgl2";
     export type ProgramType = "compute"|"render";
     export type ShaderType = "compute"|"fragment"|"vertex";
     /**
@@ -1298,6 +1298,14 @@ export module Protocol {
        */
       contextType: ContextType;
       /**
+       * Width of the canvas in pixels.
+       */
+      width: number;
+      /**
+       * Height of the canvas in pixels.
+       */
+      height: number;
+      /**
        * The corresponding DOM node id.
        */
       nodeId?: DOM.NodeId;
@@ -1338,6 +1346,20 @@ export module Protocol {
        * Removed canvas identifier.
        */
       canvasId: CanvasId;
+    }
+    export type canvasSizeChangedPayload = {
+      /**
+       * Identifier of canvas that changed.
+       */
+      canvasId: CanvasId;
+      /**
+       * Width of the canvas in pixels.
+       */
+      width: number;
+      /**
+       * Height of the canvas in pixels.
+       */
+      height: number;
     }
     export type canvasMemoryChangedPayload = {
       /**
@@ -2187,6 +2209,123 @@ export module Protocol {
     export interface Styleable {
       nodeId: NodeId;
       pseudoId?: CSS.PseudoId;
+    }
+    /**
+     * A structure holding media element statistics and configurations.
+     */
+    export interface MediaStats {
+      audio?: AudioMediaStats;
+      video?: VideoMediaStats;
+      /**
+       * The ratio between physical screen pixels and CSS pixels.
+       */
+      devicePixelRatio?: number;
+      /**
+       * The viewport size occupied by the media element.
+       */
+      viewport?: ViewportSize;
+      quality?: VideoPlaybackQuality;
+      /**
+       * The source type of the media element.
+       */
+      source?: string;
+    }
+    /**
+     * A structure holding media element's audio-specific statistics and configurations.
+     */
+    export interface AudioMediaStats {
+      /**
+       * The data rate of the primary audio track in bits/s.
+       */
+      bitrate: number;
+      /**
+       * The codec string of the primary audio track. (E.g., "hvc1.1.6.L123.B0")
+       */
+      codec: string;
+      /**
+       * A human readable version of the `codec` parameter.
+       */
+      humanReadableCodecString: string;
+      /**
+       * The number of audio channels in the primary audio track.
+       */
+      numberOfChannels: number;
+      /**
+       * The sample rate of the primary audio track in hertz.
+       */
+      sampleRate: number;
+    }
+    /**
+     * A structure holding media element's audio-specific statistics and configurations.
+     */
+    export interface VideoMediaStats {
+      /**
+       * The data rate of the video track in bits/s.
+       */
+      bitrate: number;
+      /**
+       * The codec string of the video track. (E.g., "hvc1.1.6.L123.B0")
+       */
+      codec: string;
+      /**
+       * A human readable version of the `codec` parameter.
+       */
+      humanReadableCodecString: string;
+      colorSpace: VideoColorSpace;
+      /**
+       * The nominal frame rate of video track in frames per second.
+       */
+      framerate: number;
+      /**
+       * The native height of the video track in CSS pixels
+       */
+      height: number;
+      /**
+       * The native width of the video track in CSS pixels
+       */
+      width: number;
+    }
+    /**
+     * WebCodecs VideoColorSpace
+     */
+    export interface VideoColorSpace {
+      /**
+       * A flag indicating whether the colorspace is Full range (true) or Video range (false)
+       */
+      fullRange?: boolean;
+      /**
+       * The matrix specification of the colorspace
+       */
+      matrix?: string;
+      /**
+       * The color primaries specification of the colorspace
+       */
+      primaries?: string;
+      /**
+       * The transfer function specification of the colorspace
+       */
+      transfer?: string;
+    }
+    /**
+     * A count of frames enqueued for display by the media element, and a subset count of dropped and display composited frames.
+     */
+    export interface VideoPlaybackQuality {
+      /**
+       * The number of frames of the total which were composited by the display.
+       */
+      displayCompositedVideoFrames: number;
+      /**
+       * The number of frames of the total which were dropped without being displayed.
+       */
+      droppedVideoFrames: number;
+      /**
+       * The total number of frames enqueued for display by the media element.
+       */
+      totalVideoFrames: number;
+    }
+    export interface ViewportSize {
+      width: number;
+      height: number;
     }
     /**
      * Data to construct File object.
@@ -3193,6 +3332,21 @@ export module Protocol {
       allow: boolean;
     }
     export type setAllowEditingUserAgentShadowTreesReturnValue = {
+    }
+    /**
+     * Returns media stats for the selected node.
+     */
+    export type getMediaStatsParameters = {
+      /**
+       * Id of the node to retrieve mediastats for.
+       */
+      nodeId: NodeId;
+    }
+    export type getMediaStatsReturnValue = {
+      /**
+       * An interleaved array of node attribute names and values.
+       */
+      mediaStats: MediaStats;
     }
     /**
      * Returns node description.
@@ -5225,6 +5379,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Composition due to association with an element with a "blend-mode" style.
        */
       blending?: boolean;
+      /**
+       * Composition due to association with an element that is a backdrop root
+       */
+      backdropRoot?: boolean;
     }
     
     export type layerTreeDidChangePayload = void;
@@ -6287,7 +6445,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     /**
      * List of settings able to be overridden by WebInspector.
      */
-    export type Setting = "PrivateClickMeasurementDebugModeEnabled"|"AuthorAndUserStylesEnabled"|"ICECandidateFilteringEnabled"|"ITPDebugModeEnabled"|"ImagesEnabled"|"MediaCaptureRequiresSecureConnection"|"MockCaptureDevicesEnabled"|"NeedsSiteSpecificQuirks"|"ScriptEnabled"|"ShowDebugBorders"|"ShowRepaintCounter"|"WebRTCEncryptionEnabled"|"WebSecurityEnabled"|"DeviceOrientationEventEnabled"|"SpeechRecognitionEnabled"|"PointerLockEnabled"|"NotificationsEnabled"|"FullScreenEnabled"|"InputTypeMonthEnabled"|"InputTypeWeekEnabled";
+    export type Setting = "PrivateClickMeasurementDebugModeEnabled"|"AuthorAndUserStylesEnabled"|"ICECandidateFilteringEnabled"|"ITPDebugModeEnabled"|"ImagesEnabled"|"MediaCaptureRequiresSecureConnection"|"MockCaptureDevicesEnabled"|"NeedsSiteSpecificQuirks"|"ScriptEnabled"|"ShowDebugBorders"|"ShowRepaintCounter"|"WebSecurityEnabled"|"DeviceOrientationEventEnabled"|"SpeechRecognitionEnabled"|"PointerLockEnabled"|"NotificationsEnabled"|"FullScreenEnabled"|"InputTypeMonthEnabled"|"InputTypeWeekEnabled";
     /**
      * A user preference that can be overriden by Web Inspector, like an accessibility preference.
      */
@@ -6515,10 +6673,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Whether the node is modal.
        */
       modal?: boolean;
-      /**
-       * Whether the node text input supports multiline.
-       */
-      multiline?: boolean;
       /**
        * Whether more than one child can be selected.
        */
@@ -6911,10 +7065,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * If `source` is provided (and not empty), it will be injected into all future global objects as soon as they're created. Omitting `source` will stop this from happening.
        */
       source?: string;
-      /**
-       * Isolated world name to evaluate the script in. If not specified main world will be used.
-       */
-      worldName?: string;
     }
     export type setBootstrapScriptReturnValue = {
     }
@@ -7124,18 +7274,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     export type insertTextReturnValue = {
     }
     /**
-     * Set the current IME composition.
-     */
-    export type setCompositionParameters = {
-      text: string;
-      selectionStart: number;
-      selectionLength: number;
-      replacementStart?: number;
-      replacementLength?: number;
-    }
-    export type setCompositionReturnValue = {
-    }
-    /**
      * Serializes and returns all of the accessibility nodes of the page.
      */
     export type accessibilitySnapshotParameters = {
@@ -7208,14 +7346,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       angle?: number;
     }
     export type setOrientationOverrideReturnValue = {
-    }
-    export type setVisibleContentRectsParameters = {
-      unobscuredContentRect?: DOM.Rect;
-      contentInsets?: Insets;
-      obscuredInsets?: Insets;
-      unobscuredInsets?: Insets;
-    }
-    export type setVisibleContentRectsReturnValue = {
     }
     /**
      * Ensures that the scroll regions are up to date.
@@ -7440,6 +7570,14 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
     export type disableReturnValue = {
     }
+    export type getInfoParameters = {
+    }
+    export type getInfoReturnValue = {
+      /**
+       * Name of the operating system where the browser is running (macOS, Linux or Windows).
+       */
+      os: string;
+    }
     /**
      * Close browser.
      */
@@ -7530,6 +7668,41 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       paths: string[];
     }
     export type grantFileReadAccessReturnValue = {
+    }
+    /**
+     * Capture a snapshot of the page.
+     */
+    export type takePageScreenshotParameters = {
+      /**
+       * Unique identifier of the page proxy.
+       */
+      pageProxyId: PageProxyID;
+      /**
+       * X coordinate
+       */
+      x: number;
+      /**
+       * Y coordinate
+       */
+      y: number;
+      /**
+       * Rectangle width
+       */
+      width: number;
+      /**
+       * Rectangle height
+       */
+      height: number;
+      /**
+       * By default, screenshot is inflated by device scale factor to avoid blurry image. This flag disables it.
+       */
+      omitDeviceScaleFactor?: boolean;
+    }
+    export type takePageScreenshotReturnValue = {
+      /**
+       * Base64-encoded image data (PNG).
+       */
+      dataURL: string;
     }
     /**
      * Change whether all certificate errors should be ignored.
@@ -7652,7 +7825,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     /**
      * The type of the recording.
      */
-    export type Type = "canvas-2d"|"canvas-bitmaprenderer"|"canvas-webgl"|"canvas-webgl2";
+    export type Type = "canvas-2d"|"offscreen-canvas-2d"|"canvas-bitmaprenderer"|"offscreen-canvas-bitmaprenderer"|"canvas-webgl"|"offscreen-canvas-webgl"|"canvas-webgl2"|"offscreen-canvas-webgl2";
     export type Initiator = "frontend"|"console"|"auto-capture";
     /**
      * Information about the initial state of the recorded object.
@@ -7731,7 +7904,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       /**
        * Object subtype hint. Specified for <code>object</code> <code>function</code> (for class) type values only.
        */
-      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy";
+      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy"|"weakref";
       /**
        * Object class (constructor) name. Specified for <code>object</code> type values only.
        */
@@ -7772,7 +7945,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       /**
        * Object subtype hint. Specified for <code>object</code> type values only.
        */
-      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy";
+      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy"|"weakref";
       /**
        * String representation of the object.
        */
@@ -7810,7 +7983,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       /**
        * Object subtype hint. Specified for <code>object</code> type values only.
        */
-      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy";
+      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy"|"weakref";
       /**
        * User-friendly property value string.
        */
@@ -7819,6 +7992,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Nested value preview.
        */
       valuePreview?: ObjectPreview;
+      /**
+       * True if this is a private field.
+       */
+      isPrivate?: boolean;
       /**
        * True if this is an internal property.
        */
@@ -7888,6 +8065,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Property symbol object, if the property is a symbol.
        */
       symbol?: Runtime.RemoteObject;
+      /**
+       * True if the property is a private field.
+       */
+      isPrivate?: boolean;
       /**
        * True if the property value came from a native getter.
        */
@@ -8970,10 +9151,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       workerId: string;
       url: string;
       name: string;
-      /**
-       * Id of the frame this worker belongs to.
-       */
-      frameId: Network.FrameId;
     }
     export type workerTerminatedPayload = {
       workerId: string;
@@ -9045,6 +9222,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "CSS.nodeLayoutFlagsChanged": CSS.nodeLayoutFlagsChangedPayload;
     "Canvas.canvasAdded": Canvas.canvasAddedPayload;
     "Canvas.canvasRemoved": Canvas.canvasRemovedPayload;
+    "Canvas.canvasSizeChanged": Canvas.canvasSizeChangedPayload;
     "Canvas.canvasMemoryChanged": Canvas.canvasMemoryChangedPayload;
     "Canvas.extensionEnabled": Canvas.extensionEnabledPayload;
     "Canvas.clientNodesChanged": Canvas.clientNodesChangedPayload;
@@ -9259,6 +9437,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.focus": DOM.focusParameters;
     "DOM.setInspectedNode": DOM.setInspectedNodeParameters;
     "DOM.setAllowEditingUserAgentShadowTrees": DOM.setAllowEditingUserAgentShadowTreesParameters;
+    "DOM.getMediaStats": DOM.getMediaStatsParameters;
     "DOM.describeNode": DOM.describeNodeParameters;
     "DOM.scrollIntoViewIfNeeded": DOM.scrollIntoViewIfNeededParameters;
     "DOM.getContentQuads": DOM.getContentQuadsParameters;
@@ -9393,7 +9572,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.archive": Page.archiveParameters;
     "Page.setScreenSizeOverride": Page.setScreenSizeOverrideParameters;
     "Page.insertText": Page.insertTextParameters;
-    "Page.setComposition": Page.setCompositionParameters;
     "Page.accessibilitySnapshot": Page.accessibilitySnapshotParameters;
     "Page.setInterceptFileChooserDialog": Page.setInterceptFileChooserDialogParameters;
     "Page.setDefaultBackgroundColorOverride": Page.setDefaultBackgroundColorOverrideParameters;
@@ -9401,16 +9579,17 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.setBypassCSP": Page.setBypassCSPParameters;
     "Page.crash": Page.crashParameters;
     "Page.setOrientationOverride": Page.setOrientationOverrideParameters;
-    "Page.setVisibleContentRects": Page.setVisibleContentRectsParameters;
     "Page.updateScrollingState": Page.updateScrollingStateParameters;
     "Playwright.enable": Playwright.enableParameters;
     "Playwright.disable": Playwright.disableParameters;
+    "Playwright.getInfo": Playwright.getInfoParameters;
     "Playwright.close": Playwright.closeParameters;
     "Playwright.createContext": Playwright.createContextParameters;
     "Playwright.deleteContext": Playwright.deleteContextParameters;
     "Playwright.createPage": Playwright.createPageParameters;
     "Playwright.navigate": Playwright.navigateParameters;
     "Playwright.grantFileReadAccess": Playwright.grantFileReadAccessParameters;
+    "Playwright.takePageScreenshot": Playwright.takePageScreenshotParameters;
     "Playwright.setIgnoreCertificateErrors": Playwright.setIgnoreCertificateErrorsParameters;
     "Playwright.getAllCookies": Playwright.getAllCookiesParameters;
     "Playwright.setCookies": Playwright.setCookiesParameters;
@@ -9568,6 +9747,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.focus": DOM.focusReturnValue;
     "DOM.setInspectedNode": DOM.setInspectedNodeReturnValue;
     "DOM.setAllowEditingUserAgentShadowTrees": DOM.setAllowEditingUserAgentShadowTreesReturnValue;
+    "DOM.getMediaStats": DOM.getMediaStatsReturnValue;
     "DOM.describeNode": DOM.describeNodeReturnValue;
     "DOM.scrollIntoViewIfNeeded": DOM.scrollIntoViewIfNeededReturnValue;
     "DOM.getContentQuads": DOM.getContentQuadsReturnValue;
@@ -9702,7 +9882,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.archive": Page.archiveReturnValue;
     "Page.setScreenSizeOverride": Page.setScreenSizeOverrideReturnValue;
     "Page.insertText": Page.insertTextReturnValue;
-    "Page.setComposition": Page.setCompositionReturnValue;
     "Page.accessibilitySnapshot": Page.accessibilitySnapshotReturnValue;
     "Page.setInterceptFileChooserDialog": Page.setInterceptFileChooserDialogReturnValue;
     "Page.setDefaultBackgroundColorOverride": Page.setDefaultBackgroundColorOverrideReturnValue;
@@ -9710,16 +9889,17 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.setBypassCSP": Page.setBypassCSPReturnValue;
     "Page.crash": Page.crashReturnValue;
     "Page.setOrientationOverride": Page.setOrientationOverrideReturnValue;
-    "Page.setVisibleContentRects": Page.setVisibleContentRectsReturnValue;
     "Page.updateScrollingState": Page.updateScrollingStateReturnValue;
     "Playwright.enable": Playwright.enableReturnValue;
     "Playwright.disable": Playwright.disableReturnValue;
+    "Playwright.getInfo": Playwright.getInfoReturnValue;
     "Playwright.close": Playwright.closeReturnValue;
     "Playwright.createContext": Playwright.createContextReturnValue;
     "Playwright.deleteContext": Playwright.deleteContextReturnValue;
     "Playwright.createPage": Playwright.createPageReturnValue;
     "Playwright.navigate": Playwright.navigateReturnValue;
     "Playwright.grantFileReadAccess": Playwright.grantFileReadAccessReturnValue;
+    "Playwright.takePageScreenshot": Playwright.takePageScreenshotReturnValue;
     "Playwright.setIgnoreCertificateErrors": Playwright.setIgnoreCertificateErrorsReturnValue;
     "Playwright.getAllCookies": Playwright.getAllCookiesReturnValue;
     "Playwright.setCookies": Playwright.setCookiesReturnValue;

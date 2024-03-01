@@ -14,7 +14,7 @@
   limitations under the License.
 */
 
-import { escapeRegExp } from './labelUtils';
+import { testCaseLabels } from './labelUtils';
 import type { TestCaseSummary } from './types';
 
 export class Filter {
@@ -108,9 +108,13 @@ export class Filter {
       if (test.outcome === 'skipped')
         status = 'skipped';
       const searchValues: SearchValues = {
-        text: (status + ' ' + test.projectName + ' ' + test.path.join(' ') + test.title).toLowerCase(),
+        text: (status + ' ' + test.projectName + ' ' + (test.botName || '') + ' ' + test.location.file + ' ' + test.path.join(' ') + ' ' + test.title).toLowerCase(),
         project: test.projectName.toLowerCase(),
         status: status as any,
+        file: test.location.file,
+        line: String(test.location.line),
+        column: String(test.location.column),
+        labels: testCaseLabels(test).map(label => label.toLowerCase()),
       };
       (test as any).searchValues = searchValues;
     }
@@ -127,12 +131,17 @@ export class Filter {
         return false;
     }
     if (this.text.length) {
-      const matches = this.text.filter(t => searchValues.text.includes(t)).length === this.text.length;
-      if (!matches)
+      for (const text of this.text) {
+        if (searchValues.text.includes(text))
+          continue;
+        const [fileName, line, column] = text.split(':');
+        if (searchValues.file.includes(fileName) && searchValues.line === line && (column === undefined || searchValues.column === column))
+          continue;
         return false;
+      }
     }
     if (this.labels.length) {
-      const matches = this.labels.every(l => searchValues.text?.match(new RegExp(`(\\s|^)${escapeRegExp(l)}(\\s|$)`, 'g')));
+      const matches = this.labels.every(l => searchValues.labels.includes(l));
       if (!matches)
         return false;
     }
@@ -145,5 +154,9 @@ type SearchValues = {
   text: string;
   project: string;
   status: 'passed' | 'failed' | 'flaky' | 'skipped';
+  file: string;
+  line: string;
+  column: string;
+  labels: string[];
 };
 

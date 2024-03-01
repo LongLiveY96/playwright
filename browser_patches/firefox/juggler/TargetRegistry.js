@@ -4,12 +4,10 @@
 
 const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
 const {SimpleChannel} = ChromeUtils.import('chrome://juggler/content/SimpleChannel.js');
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {Preferences} = ChromeUtils.import("resource://gre/modules/Preferences.jsm");
 const {ContextualIdentityService} = ChromeUtils.import("resource://gre/modules/ContextualIdentityService.jsm");
 const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
 const {AppConstants} = ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
-const {OS} = ChromeUtils.import("resource://gre/modules/osfile.jsm");
 
 const Cr = Components.results;
 
@@ -185,7 +183,7 @@ class TargetRegistry {
         domWindow = appWindow;
         appWindow = null;
       }
-      if (!(domWindow instanceof Ci.nsIDOMChromeWindow))
+      if (!domWindow.isChromeWindow)
         return;
       // In persistent mode, window might be opened long ago and might be
       // already initialized.
@@ -213,7 +211,7 @@ class TargetRegistry {
 
     const onCloseWindow = window => {
       const domWindow = window.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowInternal || Ci.nsIDOMWindow);
-      if (!(domWindow instanceof Ci.nsIDOMChromeWindow))
+      if (!domWindow.isChromeWindow)
         return;
       if (!domWindow.gBrowser)
         return;
@@ -350,7 +348,7 @@ class PageTarget {
     this._openerId = opener ? opener.id() : undefined;
     this._actor = undefined;
     this._actorSequenceNumber = 0;
-    this._channel = new SimpleChannel(`browser::page[${this._targetId}]`);
+    this._channel = new SimpleChannel(`browser::page[${this._targetId}]`, 'target-' + this._targetId);
     this._videoRecordingInfo = undefined;
     this._screencastRecordingInfo = undefined;
     this._dialogs = new Map();
@@ -381,21 +379,28 @@ class PageTarget {
     this._registry.emit(TargetRegistry.Events.TargetCreated, this);
   }
 
-  async activateAndRun(callback = () => {}) {
+  async activateAndRun(callback = () => {}, { muteNotificationsPopup = false } = {}) {
     const ownerWindow = this._tab.linkedBrowser.ownerGlobal;
     const tabBrowser = ownerWindow.gBrowser;
     // Serialize all tab-switching commands per tabbed browser
     // to disallow concurrent tab switching.
-    tabBrowser.__serializedChain = (tabBrowser.__serializedChain ?? Promise.resolve()).then(async () => {
+    const result = (tabBrowser.__serializedChain ?? Promise.resolve()).then(async () => {
       this._window.focus();
       if (tabBrowser.selectedTab !== this._tab) {
         const promise = helper.awaitEvent(ownerWindow, 'TabSwitchDone');
         tabBrowser.selectedTab = this._tab;
         await promise;
       }
-      await callback();
+      const notificationsPopup = muteNotificationsPopup ? this._linkedBrowser?.ownerDocument.getElementById('notification-popup') : null;
+      notificationsPopup?.style.setProperty('pointer-events', 'none');
+      try {
+        await callback();
+      } finally {
+        notificationsPopup?.style.removeProperty('pointer-events');
+      }
     });
-    return tabBrowser.__serializedChain;
+    tabBrowser.__serializedChain = result.catch(error => { /* swallow errors to keep chain running */ });
+    return result;
   }
 
   frameIdToBrowsingContext(frameId) {
@@ -453,6 +458,11 @@ class PageTarget {
     this.updateColorSchemeOverride(browsingContext);
     this.updateReducedMotionOverride(browsingContext);
     this.updateForcedColorsOverride(browsingContext);
+    this.updateForceOffline(browsingContext);
+  }
+
+  updateForceOffline(browsingContext = undefined) {
+    (browsingContext || this._linkedBrowser.browsingContext).forceOffline = this._browserContext.forceOffline;
   }
 
   updateTouchOverride(browsingContext = undefined) {
@@ -491,6 +501,9 @@ class PageTarget {
   }
 
   async updateViewportSize() {
+    await waitForWindowReady(this._window);
+    this.updateDPPXOverride();
+
     // Viewport size is defined by three arguments:
     // 1. default size. Could be explicit if set as part of `window.open` call, e.g.
     //   `window.open(url, title, 'width=400,height=400')`
@@ -501,13 +514,36 @@ class PageTarget {
     // Otherwise, explicitly set page viewport prevales over browser context
     // default viewport.
     const viewportSize = this._viewportSize || this._browserContext.defaultViewportSize;
-    const actualSize = await setViewportSizeForBrowser(viewportSize, this._linkedBrowser, this._window);
-    this.updateDPPXOverride();
-    await this._channel.connect('').send('awaitViewportDimensions', {
-      width: actualSize.width,
-      height: actualSize.height,
-      deviceSizeIsPageSize: !!this._browserContext.deviceScaleFactor,
-    });
+    if (viewportSize) {
+      const {width, height} = viewportSize;
+      this._linkedBrowser.style.setProperty('width', width + 'px');
+      this._linkedBrowser.style.setProperty('height', height + 'px');
+      this._linkedBrowser.style.setProperty('box-sizing', 'content-box');
+      this._linkedBrowser.closest('.browserStack').style.setProperty('overflow', 'auto');
+      this._linkedBrowser.closest('.browserStack').style.setProperty('contain', 'size');
+      this._linkedBrowser.closest('.browserStack').style.setProperty('scrollbar-width', 'none');
+      this._linkedBrowser.browsingContext.inRDMPane = true;
+
+      const stackRect = this._linkedBrowser.closest('.browserStack').getBoundingClientRect();
+      const toolbarTop = stackRect.y;
+      this._window.resizeBy(width - this._window.innerWidth, height + toolbarTop - this._window.innerHeight);
+
+      await this._channel.connect('').send('awaitViewportDimensions', { width, height });
+    } else {
+      this._linkedBrowser.style.removeProperty('width');
+      this._linkedBrowser.style.removeProperty('height');
+      this._linkedBrowser.style.removeProperty('box-sizing');
+      this._linkedBrowser.closest('.browserStack').style.removeProperty('overflow');
+      this._linkedBrowser.closest('.browserStack').style.removeProperty('contain');
+      this._linkedBrowser.closest('.browserStack').style.removeProperty('scrollbar-width');
+      this._linkedBrowser.browsingContext.inRDMPane = false;
+
+      const actualSize = this._linkedBrowser.getBoundingClientRect();
+      await this._channel.connect('').send('awaitViewportDimensions', {
+        width: actualSize.width,
+        height: actualSize.height,
+      });
+    }
   }
 
   setEmulatedMedia(mediumOverride) {
@@ -623,7 +659,7 @@ class PageTarget {
     // NSWindow.windowNumber may be -1, so we wait until the window is known
     // to be initialized and visible.
     await this.windowReady();
-    const file = OS.Path.join(dir, helper.generateId() + '.webm');
+    const file = PathUtils.join(dir, helper.generateId() + '.webm');
     if (width < 10 || width > 10000 || height < 10 || height > 10000)
       throw new Error("Invalid size");
 
@@ -702,7 +738,23 @@ class PageTarget {
     screencastService.stopVideoRecording(screencastId);
   }
 
+  ensureContextMenuClosed() {
+    // Close context menu, if any, since it might capture mouse events on Linux
+    // and prevent browser shutdown on MacOS.
+    const doc = this._linkedBrowser.ownerDocument;
+    const contextMenu = doc.getElementById('contentAreaContextMenu');
+    if (contextMenu)
+      contextMenu.hidePopup();
+    const autocompletePopup = doc.getElementById('PopupAutoComplete');
+    if (autocompletePopup)
+      autocompletePopup.hidePopup();
+    const selectPopup = doc.getElementById('ContentSelectDropdown')?.menupopup;
+    if (selectPopup)
+      selectPopup.hidePopup()
+  }
+
   dispose() {
+    this.ensureContextMenuClosed();
     this._disposed = true;
     if (this._videoRecordingInfo)
       this._stopVideoRecording();
@@ -782,6 +834,7 @@ class BrowserContext {
     this.defaultUserAgent = null;
     this.defaultPlatform = null;
     this.touchOverride = false;
+    this.forceOffline = false;
     this.colorScheme = 'none';
     this.forcedColors = 'no-override';
     this.reducedMotion = 'none';
@@ -875,6 +928,12 @@ class BrowserContext {
     this.touchOverride = touchOverride;
     for (const page of this.pages)
       page.updateTouchOverride();
+  }
+
+  setForceOffline(forceOffline) {
+    this.forceOffline = forceOffline;
+    for (const page of this.pages)
+      page.updateForceOffline();
   }
 
   async setDefaultViewport(viewport) {
@@ -1102,26 +1161,6 @@ async function waitForWindowReady(window) {
   }
   if (window.document.readyState !== 'complete')
     await helper.awaitEvent(window, 'load');
-}
-
-async function setViewportSizeForBrowser(viewportSize, browser, window) {
-  await waitForWindowReady(window);
-  if (viewportSize) {
-    const {width, height} = viewportSize;
-    const rect = browser.getBoundingClientRect();
-    window.resizeBy(width - rect.width, height - rect.height);
-    browser.style.setProperty('min-width', width + 'px');
-    browser.style.setProperty('min-height', height + 'px');
-    browser.style.setProperty('max-width', width + 'px');
-    browser.style.setProperty('max-height', height + 'px');
-  } else {
-    browser.style.removeProperty('min-width');
-    browser.style.removeProperty('min-height');
-    browser.style.removeProperty('max-width');
-    browser.style.removeProperty('max-height');
-  }
-  const rect = browser.getBoundingClientRect();
-  return { width: rect.width, height: rect.height };
 }
 
 TargetRegistry.Events = {

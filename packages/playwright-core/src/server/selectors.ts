@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { allEngineNames, InvalidSelectorError, type ParsedSelector, parseSelector, stringifySelector } from '../utils/isomorphic/selectorParser';
+import { visitAllSelectorParts, InvalidSelectorError, type ParsedSelector, parseSelector, stringifySelector } from '../utils/isomorphic/selectorParser';
 import { createGuid } from '../utils';
 
 export class Selectors {
@@ -35,7 +35,10 @@ export class Selectors {
       'data-testid', 'data-testid:light',
       'data-test-id', 'data-test-id:light',
       'data-test', 'data-test:light',
-      'nth', 'visible', 'internal:control', 'internal:has', 'internal:has-text', 'internal:or',
+      'nth', 'visible', 'internal:control',
+      'internal:has', 'internal:has-not',
+      'internal:has-text', 'internal:has-not-text',
+      'internal:and', 'internal:or', 'internal:chain',
       'role', 'internal:attr', 'internal:label', 'internal:text', 'internal:role', 'internal:testid',
     ]);
     this._builtinEnginesInMainWorld = new Set([
@@ -70,7 +73,8 @@ export class Selectors {
   parseSelector(selector: string | ParsedSelector, strict: boolean) {
     const parsed = typeof selector === 'string' ? parseSelector(selector) : selector;
     let needsMainWorld = false;
-    for (const name of allEngineNames(parsed)) {
+    visitAllSelectorParts(parsed, part => {
+      const name = part.name;
       const custom = this._engines.get(name);
       if (!custom && !this._builtinEngines.has(name))
         throw new InvalidSelectorError(`Unknown engine "${name}" while parsing selector ${stringifySelector(parsed)}`);
@@ -78,7 +82,7 @@ export class Selectors {
         needsMainWorld = true;
       if (this._builtinEnginesInMainWorld.has(name))
         needsMainWorld = true;
-    }
+    });
     return {
       parsed,
       world: needsMainWorld ? 'main' as const : 'utility' as const,

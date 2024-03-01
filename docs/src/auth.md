@@ -3,6 +3,8 @@ id: auth
 title: "Authentication"
 ---
 
+## Introduction
+
 Playwright executes tests in isolated environments called [browser contexts](./browser-contexts.md). This isolation model improves reproducibility and prevents cascading test failures. Tests can load existing authenticated state. This eliminates the need to authenticate in every test and speeds up test execution.
 
 ## Core concepts
@@ -41,11 +43,10 @@ This is the **recommended** approach for tests **without server-side state**. Au
 
 **Details**
 
-Create `auth.setup.ts` that will prepare authenticated browser state for all other tests.
+Create `tests/auth.setup.ts` that will prepare authenticated browser state for all other tests.
 
-```js
-// auth.setup.ts
-import { test as setup } from '@playwright/test';
+```js title="tests/auth.setup.ts"
+import { test as setup, expect } from '@playwright/test';
 
 const authFile = 'playwright/.auth/user.json';
 
@@ -69,10 +70,9 @@ setup('authenticate', async ({ page }) => {
 });
 ```
 
-Create a new `setup` project in the config and declare it as a dependency for all your testing projects. This project will always run and authenticate before all the tests. All testing projects should use the authenticated state as `storageState`.
+Create a new `setup` project in the config and declare it as a [dependency](./test-projects.md#dependencies) for all your testing projects. This project will always run and authenticate before all the tests. All testing projects should use the authenticated state as `storageState`.
 
-```js
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
@@ -105,8 +105,7 @@ export default defineConfig({
 
 Tests start already authenticated because we specified `storageState` in the config.
 
-```js
-// tests/example.spec.ts
+```js title="tests/example.spec.ts"
 import { test } from '@playwright/test';
 
 test('test', async ({ page }) => {
@@ -132,9 +131,8 @@ We will authenticate once per [worker process](./test-parallel.md#worker-process
 
 Create `playwright/fixtures.ts` file that will [override `storageState` fixture](./test-fixtures.md#overriding-fixtures) to authenticate once per worker. Use [`property: TestInfo.parallelIndex`] to differentiate between workers.
 
-```js
-// playwright/fixtures.ts
-import { test as baseTest } from '@playwright/test';
+```js title="playwright/fixtures.ts"
+import { test as baseTest, expect } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
@@ -188,9 +186,7 @@ export const test = baseTest.extend<{}, { workerStorageState: string }>({
 
 Now, each test file should import `test` from our fixtures file instead of `@playwright/test`. No changes are needed in the config.
 
-```js
-// tests/example.spec.ts
-
+```js title="tests/example.spec.ts"
 // Important: import our fixtures.
 import { test, expect } from '../playwright/fixtures';
 
@@ -320,8 +316,7 @@ We will send the API request with [APIRequestContext] and then save authenticate
 
 In the [setup project](#basic-shared-account-in-all-tests):
 
-```js
-// auth.setup.ts
+```js title="tests/auth.setup.ts"
 import { test as setup } from '@playwright/test';
 
 const authFile = 'playwright/.auth/user.json';
@@ -340,8 +335,7 @@ setup('authenticate', async ({ request }) => {
 
 Alternatively, in a [worker fixture](#moderate-one-account-per-parallel-worker):
 
-```js
-// playwright/fixtures.ts
+```js title="playwright/fixtures.ts"
 import { test as baseTest, request } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
@@ -397,9 +391,8 @@ export const test = baseTest.extend<{}, { workerStorageState: string }>({
 
 We will authenticate multiple times in the setup project.
 
-```js
-// auth.setup.ts
-import { test as setup } from '@playwright/test';
+```js title="tests/auth.setup.ts"
+import { test as setup, expect } from '@playwright/test';
 
 const adminFile = 'playwright/.auth/admin.json';
 
@@ -446,8 +439,7 @@ setup('authenticate as user', async ({ page }) => {
 
 After that, specify `storageState` for each test file or test group, **instead of** setting it in the config.
 
-```js
-// tests/example.spec.ts
+```js title="tests/example.spec.ts"
 import { test } from '@playwright/test';
 
 test.use({ storageState: 'playwright/.auth/admin.json' });
@@ -475,8 +467,7 @@ test.describe(() => {
 
 Use multiple [BrowserContext]s and [Page]s with different storage states in the same test.
 
-```js
-// tests/example.spec.ts
+```js title="tests/example.spec.ts"
 import { test } from '@playwright/test';
 
 test('admin and user', async ({ browser }) => {
@@ -507,9 +498,8 @@ You can introduce fixtures that will provide a page authenticated as each role.
 
 Below is an example that [creates fixtures](./test-fixtures.md#creating-a-fixture) for two [Page Object Models](./pom.md) - admin POM and user POM. It assumes `adminStorageState.json` and `userStorageState.json` files were created in the global setup.
 
-```js
-// playwright/fixtures.ts
-import { test as base, Page, Browser, Locator } from '@playwright/test';
+```js title="playwright/fixtures.ts"
+import { test as base, type Page, type Locator } from '@playwright/test';
 
 // Page Object Model for the "admin" page.
 // Here you can add locators and helper methods specific to the admin page.
@@ -563,10 +553,11 @@ export const test = base.extend<MyFixtures>({
   },
 });
 
+```
 
-// tests/example.spec.ts
+```js title="tests/example.spec.ts"
 // Import test with our new fixtures.
-import { test, expect } from './fixtures';
+import { test, expect } from '../playwright/fixtures';
 
 // Use adminPage and userPage fixtures in the test.
 test('admin and user', async ({ adminPage, userPage }) => {
@@ -584,16 +575,14 @@ Reusing authenticated state covers [cookies](https://developer.mozilla.org/en-US
 ```js
 // Get session storage and store as env variable
 const sessionStorage = await page.evaluate(() => JSON.stringify(sessionStorage));
-await fs.writeFileSync('playwright/.auth/session.json', JSON.stringify(sessionStorage), 'utf-8');
+fs.writeFileSync('playwright/.auth/session.json', sessionStorage, 'utf-8');
 
 // Set session storage in a new context
-const sessionStorage = JSON.parse(await fs.readFileSync('playwright/.auth/session.json', 'utf-8'));
+const sessionStorage = JSON.parse(fs.readFileSync('playwright/.auth/session.json', 'utf-8'));
 await context.addInitScript(storage => {
   if (window.location.hostname === 'example.com') {
-    const entries = JSON.parse(storage);
-    for (const [key, value] of Object.entries(entries)) {
+    for (const [key, value] of Object.entries(storage))
       window.sessionStorage.setItem(key, value);
-    }
   }
 }, sessionStorage);
 ```
@@ -666,4 +655,20 @@ await context.AddInitScriptAsync(@"(storage => {
       }
     }
   })('" + loadedSessionStorage + "')");
+```
+
+### Avoid authentication in some tests
+* langs: js
+
+You can reset storage state in a test file to avoid authentication that was set up for the whole project.
+
+```js title="not-signed-in.spec.ts"
+import { test } from '@playwright/test';
+
+// Reset storage state for this file to avoid being authenticated
+test.use({ storageState: { cookies: [], origins: [] } });
+
+test('not signed in test', async ({ page }) => {
+  // ...
+});
 ```

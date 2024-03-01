@@ -251,7 +251,7 @@ test('fixture time in beforeAll hook should not affect test', async ({ runInline
       import { test as base, expect } from '@playwright/test';
       const test = base.extend({
         fixture: async ({}, use) => {
-          await new Promise(f => setTimeout(f, 500));
+          await new Promise(f => setTimeout(f, 2000));
           await use('hey');
         },
       });
@@ -260,7 +260,6 @@ test('fixture time in beforeAll hook should not affect test', async ({ runInline
       });
       test('test ok', async ({}) => {
         test.setTimeout(1000);
-        await new Promise(f => setTimeout(f, 800));
       });
     `
   });
@@ -274,16 +273,16 @@ test('fixture timeout in beforeAll hook should not affect test', async ({ runInl
       import { test as base, expect } from '@playwright/test';
       const test = base.extend({
         fixture: [async ({}, use) => {
-          await new Promise(f => setTimeout(f, 500));
+          await new Promise(f => setTimeout(f, 1000));
           await use('hey');
-        }, { timeout: 800 }],
+        }, { timeout: 1600 }],
       });
       test.beforeAll(async ({ fixture }) => {
         // Nothing to see here.
       });
       test('test ok', async ({}) => {
-        test.setTimeout(1000);
-        await new Promise(f => setTimeout(f, 800));
+        test.setTimeout(2000);
+        await new Promise(f => setTimeout(f, 1600));
       });
     `
   });
@@ -331,6 +330,9 @@ test('test timeout should still run hooks before fixtures teardown', async ({ ru
         await new Promise(f => setTimeout(f, 500));
         console.log('\\n%%afterAll-2');
       });
+      test.afterEach(async () => {
+        console.log('\\n%%afterEach');
+      });
       test('test fail', async ({}) => {
         test.setTimeout(100);
         console.log('\\n%%test');
@@ -344,9 +346,10 @@ test('test timeout should still run hooks before fixtures teardown', async ({ ru
   expect(result.outputLines).toEqual([
     'before-auto',
     'test',
+    'afterEach',
+    'after-auto',
     'afterAll-1',
     'afterAll-2',
-    'after-auto',
   ]);
 });
 
